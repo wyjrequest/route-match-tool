@@ -16,6 +16,9 @@ const double X_PI = (PI * 3000.0 / 180.0);
 struct Point2D{
     int32_t x;
     int32_t y;
+
+    double lon;
+    double lat;
     double toFloatLon() const {return static_cast<double>(x) / 1000000.0;}
     double toFloatLat() const {return static_cast<double>(y) / 1000000.0;}
     Point2D():x(0),y(0){}

@@ -30,12 +30,12 @@ bool readtxt(const char* in_file,
         }
 
         result.clear();
-        result.reserve(10);
+        result.reserve(12);
 
         // 将每行按分隔符分割
         splitstring(line, ';', result);
 
-        if(result.size() == 10){
+        if(result.size() == 12){
             // 输出拆分后的结果w
             std::cout << "<< " << way_id << std::endl;
 
@@ -67,11 +67,12 @@ bool readtxt(const char* in_file,
 
             wi.oneway_type = Options_Oneway(atoi(result.at(3).c_str()) - 1);
             wi.k_v.emplace_back("oneway", oneway_type_strs.find(wi.oneway_type)->second);
-            wi.k_v.emplace_back("name", result.at(7));
-            wi.k_v.emplace_back("price_type", (result.at(6).compare("None") == 0 || result.at(6).empty())? "0" : result.at(6));
-            wi.k_v.emplace_back("slope", result.at(8));
-            // wi.k_v.emplace_back("toll", (result.at(7).compare("1") == 0 ? "1" : "0"));
-            // wi.k_v.emplace_back("lanes", result.at(8));
+            wi.k_v.emplace_back("name", result.at(8));
+            bool is_toll = (result.at(6).compare("2") != 0);
+            wi.k_v.emplace_back("toll", is_toll ? "1" : "0");
+            wi.k_v.emplace_back("price_type", (!is_toll || result.at(7).compare("None") == 0 || result.at(7).empty())? "0" : result.at(7));
+            wi.k_v.emplace_back("slope", result.at(9));
+            wi.k_v.emplace_back("lanes", result.at(11));
 
             if(result.at(4).size() > 12){
                 std::string geom;
@@ -99,7 +100,7 @@ bool readtxt(const char* in_file,
             }
 
             wi.highway_type = highway_types.find(highway.c_str())->second;
-            wi.slope_type = slope_types.find(result.at(8).c_str())->second;
+            wi.slope_type = slope_types.find(result.at(9).c_str())->second;
 
             if(wi.oneway_type == Options_reverse){
                 wi.oneway_type = Options_yes;

@@ -152,7 +152,10 @@ private:
 
     std::shared_ptr<Node> dsegmentIdToNode(uint32_t dsegment_id, bool is_reverse, std::shared_ptr<Node> parent = nullptr);
     bool expandNode(bool is_start);
+
+    void gendsegmentPoints(const uint32_t dsegment_id, const int32_t start_index, const int32_t end_index, std::vector<Point2D> & poistions);
     void constructPath(MatchPathResult &path);
+    void constructPoints(const std::vector<uint32_t> & dsegment_ids, std::vector<Point2D> & poistions);
     void constructSectionInfo(MatchPathResult &path);
 private:
     std::shared_ptr<DataManger> datamanager;

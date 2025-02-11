@@ -16,7 +16,7 @@ void splitstring(const std::string& str, const char separate, std::vector<std::s
 
 // 计算两点之间的平方距离(m)
 double squaredDistance(const Point2D& p1, const Point2D& p2) {
-    return (((p1.x - p2.x) * (p1.x - p2.x)) + ((p1.y - p2.y) * (p1.y - p2.y))) / 100;
+    return  (((p1.x - p2.x) * (p1.x - p2.x)) + ((p1.y - p2.y) * (p1.y - p2.y)))/ 100;
 }
 
 // 计算两向量的叉乘
