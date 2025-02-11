@@ -43,7 +43,14 @@ void insert_data(PGconn* conn, const std::string & road_section_code, const std:
     std::cout << "Connected to database successfully!" << std::endl;
 
     // 构造 SQL 插入语句
-    std::string query = "INSERT INTO iov_track_road_info (road_section_code, road_info, gmt_create, bd_geom, standard_geom) VALUES ($1::varchar(200), $2::json, $3::timestamp(0), ST_GeomFromText($4, 4326), ST_GeomFromText($5, 4326));";
+    std::string query = "INSERT INTO iov_track_road_info (road_section_code, road_info, gmt_create, bd_geom, standard_geom) VALUES "
+                        "($1::varchar(200), $2::json, $3::timestamp(0), ST_GeomFromText($4, 4326), ST_GeomFromText($5, 4326))"
+                        "ON CONFLICT (road_section_code)"
+                        "DO UPDATE SET"
+                        "road_info = EXCLUDED.road_info"
+                        "gmt_create = EXCLUDED.gmt_create"
+                        "bd_geom = EXCLUDED.bd_geom"
+                        "standard_geom = EXCLUDED.standard_geom;";
 
     // 设置参数
     const char* paramValues[5] = {road_section_code.c_str(), road_info.c_str(), gmt_create.c_str(), bd_geom.c_str(), st_geom.c_str()};
@@ -265,7 +272,7 @@ void processPoints(const char * conninfo, const char * ds){
             match_service.RunQuery(coordlist, result);
 
             std::cout << "insert database track:" << section_code.c_str() << std::endl;
-            insert_data(conn, section_code, std::move(result.toSectionInfoJson()), "2025-01-10", std::move(result.toWkt()), std::move(pointsToWkt(coordlist)));
+            insert_data(conn, section_code, std::move(result.toSectionInfoJson()), ds, std::move(result.toWkt()), std::move(pointsToWkt(coordlist)));
 
         } catch (const boost::property_tree::json_parser_error& e) {
             std::cerr << "Error parsing JSON: " << e.what() << std::endl;
