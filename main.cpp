@@ -190,7 +190,7 @@ uint32_t spinlock(){
     lock_flag.clear(std::memory_order_release);
     return index;
 }
-void processPoints(const char * conninfo){
+void processPoints(const char * conninfo, const char * ds){
     // 连接数据库
     PGconn* conn = PQconnectdb(conninfo);
     if (PQstatus(conn) != CONNECTION_OK) {
@@ -217,7 +217,7 @@ void processPoints(const char * conninfo){
         }
 
         memset(buffer, 0, sizeof(buffer));
-        snprintf(buffer, sizeof(buffer), "https://zmap-openapi.gw.zt-express.com/iov/getTrack?sectionCode=%s", section_code.c_str());
+        snprintf(buffer, sizeof(buffer), "https://zmap-openapi.gw.zt-express.com/iov/getTrack?sectionCode=%s&ds=%s", section_code.c_str(), ds);
 
         std::cout << "request track:" << section_code.c_str() << std::endl;
         std::string track;
@@ -2697,7 +2697,7 @@ int main(int argc, const char *argv[])
     match_service.initialization(argv[1]);
 
     char buffer[128];
-    snprintf(buffer, sizeof(buffer), "https://zmap-openapi.gw.zt-express.com/iov/getAllSectionCode?ds=20250110");
+    snprintf(buffer, sizeof(buffer), "https://zmap-openapi.gw.zt-express.com/iov/getAllSectionCode?ds=%s", argv[2]);
 
     request_get_line(buffer, section_codes);
 
@@ -2709,7 +2709,7 @@ int main(int argc, const char *argv[])
     std::vector<std::thread> thread_group;
     thread_group.reserve(thread_num);
     for(int32_t t = 0; t < thread_num; ++t){
-        thread_group.emplace_back(processPoints, conninfo);
+        thread_group.emplace_back(processPoints, conninfo, argv[2]);
     }
 
     for(int32_t t = 0; t < thread_num; ++t){
