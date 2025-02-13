@@ -491,8 +491,8 @@ void BidirectionalDijkstras::constructSectionInfo(MatchPathResult &path){
             else{
                 if(ramp_info.start_index != ramp_info.end_index){
                     path.ramp_list.push_back(ramp_info);
-                    ramp_info = {-1, -1, 0.0};
                 }
+                ramp_info = {-1, -1, 0.0};
             }
 
             if((ni.is_reverse && ni.way_info->slope_type == Options_Slope::Options_upslope) || (!ni.is_reverse && ni.way_info->slope_type == Options_Slope::Options_downhill)){
@@ -509,6 +509,7 @@ void BidirectionalDijkstras::constructSectionInfo(MatchPathResult &path){
                     path.slop_list.push_back(slep_info);
                     slep_info = {-1, -1, 0.0};
                 }
+                slep_info = {-1, -1, 0.0};
             }
             break;
         }

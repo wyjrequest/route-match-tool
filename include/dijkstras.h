@@ -127,7 +127,7 @@ struct MatchPathResult{
         SECTION_INFO_TO_STR(dangers_list, d_list, d_list_str);
 
         std::string r_list_str;
-        SECTION_INFO_TO_STR(ramp_list, r_list, d_list_str);
+        SECTION_INFO_TO_STR(ramp_list, r_list, r_list_str);
 
         std::string s_list_str;
         SECTION_INFO_TO_STR(slop_list, s_list, s_list_str);
