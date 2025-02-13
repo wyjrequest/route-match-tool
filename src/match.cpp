@@ -42,21 +42,44 @@ uint32_t MatchService::RunQuery(const std::vector<Point2D> & coordlist, MatchPat
     // std::cout << "tie the road nearby, point size:" << coordlist.size() << std::endl;
 
     size_t size = coordlist.size();
-    std::vector<std::vector<NearestInfo > > route_nearest_info;
-    route_nearest_info.resize(size);
+    std::vector<TrackInfo > track_list;
+    track_list.resize(coordlist.size());
 
     for(size_t index = 0; index < size; ++index){
+        track_list[index].pt = coordlist[index];
+        track_list[index].distance_pre =  (index == 0 ? 0.0 : haversine_distance(coordlist.at(index - 1), coordlist.at(index)));
+    }
+
+    // std::vector<std::vector<NearestInfo > > route_nearest_info;
+    // route_nearest_info.resize(size);
+
+    for(size_t index = 0; index < size; ++index){
+        if(index == 3079){
+            index = index;
+        }
+
         const Point2D &p = coordlist.at(index);
         std::vector<std::pair<RBox, std::shared_ptr<SegmentInfo>>> results;
         dm->GetSegmentInfoByCoord(p.x, p.y, results);
 
-        const size_t & size = results.size();
-        std::vector<NearestInfo> nearest_infos;
+        // const size_t & size = results.size();
+        std::vector<NearestInfo> & nearest_infos = track_list[index].nis;
         nearest_infos.reserve(size);
-        const double brearing = size < 2 ? 0.0 :
-                    ((index < (size - 1)) ?
-                         CalculateAngle(coordlist.at(index), coordlist.at(index + 1)) :
-                         CalculateAngle(coordlist.at(index - 1), coordlist.at(index)));
+
+        double brearing = 0.0;
+        if(index == (size - 1)){
+            int32_t s = index;
+            for(double len = 0.0; len < 10.0 && s > 0; --s){
+                len += track_list[s].distance_pre;
+            }
+            brearing = CalculateAngle(coordlist.at(s), coordlist.at(index));
+        }else {
+            int32_t e = index;
+            for(double len = 0.0; len < 10.0 && e < (size - 1); ++e){
+                len += track_list[e + 1].distance_pre;
+            }
+            brearing = CalculateAngle(coordlist.at(index), coordlist.at(e));
+        }
 
         auto result_begin = results.begin();
         auto result_end   = results.end();
@@ -85,11 +108,11 @@ uint32_t MatchService::RunQuery(const std::vector<Point2D> & coordlist, MatchPat
             return ((a.distance + a.angle * 4.0) < (b.distance + b.angle * 4.0));
         });
 
-        route_nearest_info[index] = nearest_infos;
+        // route_nearest_info[index] = nearest_infos;
     }
 
     // std::cout << "bidirectional dijkstras..." << std::endl;
-    BidirectionalDijkstras bd(dm, coordlist, route_nearest_info);
+    BidirectionalDijkstras bd(dm, track_list /*coordlist, route_nearest_info*/);
     bd.findPath(result);
 
     return coordlist.size();

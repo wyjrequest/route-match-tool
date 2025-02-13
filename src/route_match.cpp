@@ -255,7 +255,12 @@ bool processRouteSection(const std::string &section_code, PGconn* conn, const ch
                 splitstring(points, ';', pointlist);
                 coordlist.reserve(pointlist.size());
 
+                // int32_t s_index = 3070;
                 for(const auto &str_point : pointlist){
+                    // if(s_index != 0){
+                    //     --s_index;
+                    //     continue;
+                    // }
                     std::vector<std::string> lon_lat;
                     splitstring(str_point, ',', lon_lat);
                     if(lon_lat.size() == 2){
@@ -327,10 +332,17 @@ int route_match_processing(int argc, const char *argv[])
         std::cout <<"Number of executed items:" << pre_section_codes.size() << std::endl;
     }
 
+    if(0){
+        section_codes = {"55700-57100"};
+        processPoints(argv[2]);
+        return 1;
+    }
+
     char buffer[128];
     snprintf(buffer, sizeof(buffer), "%s/iov/getAllSectionCode?ds=%s", requesturl, argv[2]);
     request_get_line(buffer, section_codes);
     std::cout <<"Total number:" << section_codes.size() << std::endl;
+
 
     int32_t thread_num = std::thread::hardware_concurrency() / 2 + 1;
     std::cout <<"thread number:" << thread_num << std::endl;

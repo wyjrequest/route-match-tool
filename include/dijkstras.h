@@ -139,15 +139,16 @@ struct MatchPathResult{
 class BidirectionalDijkstras {
 public:
     BidirectionalDijkstras(std::shared_ptr<DataManger> dm,
-                       const std::vector<Point2D> & coordlist,
-                       const std::vector<std::vector<NearestInfo>> & route_nearest_info);
+                           const std::vector<TrackInfo > & tracklist
+                       /* const std::vector<Point2D> & coordlist,
+                       const std::vector<std::vector<NearestInfo>> & route_nearest_info */);
     void findPath(MatchPathResult & path);
 private:
     void initialization();
     void initForward();
     void initRevered();
 
-    double totalExtendLen(bool is_reverse, int32_t index);
+    double totalExtendLen(int32_t index, bool is_reverse);
     double currentExtendLen(const NearestInfo & ni, bool is_reverse);
 
     std::shared_ptr<Node> dsegmentIdToNode(uint32_t dsegment_id, bool is_reverse, std::shared_ptr<Node> parent = nullptr);

@@ -4,37 +4,39 @@
 #include <fstream>
 
 BidirectionalDijkstras::BidirectionalDijkstras(std::shared_ptr<DataManger> dm,
-                                               const std::vector<Point2D> & coordlist,
-                                               const std::vector<std::vector<NearestInfo>> & rni): datamanager(dm){
+                                               const std::vector<TrackInfo > & tracklist
+                                               /* const std::vector<Point2D> & coordlist,
+                                                * const std::vector<std::vector<NearestInfo>> & rni */)
+                                                : datamanager(dm), track_list(std::move(tracklist)){
     uint32_t dsegmentid = 0;
-    track_list.resize(coordlist.size());
+    // track_list.resize(coordlist.size());
 
-    for(int32_t i = 0; i < coordlist.size(); ++i){
-        const auto & nis = rni.at(i);
-        track_list[i].pt = coordlist[i];
-        track_list[i].distance_pre =  (i == 0 ? 0.0 : haversine_distance(coordlist.at(i - 1), coordlist.at(i)));
-        track_list[i].nis = nis;
+    for(int32_t i = 0; i < track_list.size(); ++i){
+        const auto & nis = track_list[i].nis ;
+        // track_list[i].pt = coordlist[i];
+        // track_list[i].distance_pre =  (i == 0 ? 0.0 : haversine_distance(coordlist.at(i - 1), coordlist.at(i)));
+        // track_list[i].nis = nis;
         for(const auto & ni : nis){
             dsegmentid = (ni.way_info->id << 1) + ni.is_reverse;
             if(pre_segment_cost.find(dsegmentid) == pre_segment_cost.end()){
                 pre_segment_cost[dsegmentid].segment_id = dsegmentid;
             }
-            pre_segment_cost[dsegmentid].factor += (ni.distance + (ni.angle * 4));
+            pre_segment_cost[dsegmentid].factor += (ni.distance + ni.angle * 4);
             pre_segment_cost[dsegmentid].neart_index.emplace_back(i);
         }
     }
 
     for(auto & pec : pre_segment_cost){
-        pec.second.factor /= (pec.second.neart_index.size() * pec.second.neart_index.size()) / 400.0;
+        pec.second.factor = (1.0 + pec.second.factor / (800.0 * (pec.second.neart_index.size()))) / 2.0 ;
     }
 
     forward_longest_index = {-1, nullptr};
-    reverse_longest_index = {coordlist.size(), nullptr};
+    reverse_longest_index = {track_list.size(), nullptr};
 
     initialization();
 }
 
-double BidirectionalDijkstras::totalExtendLen(bool is_reverse, int32_t index){
+double BidirectionalDijkstras::totalExtendLen(int32_t index, bool is_reverse){
     double len = is_reverse ? track_list[index].distance_pre : (((track_list.size() - 1) > index) ? track_list[index + 1].distance_pre : 0.0);
     return len * 1.5;
 }
@@ -120,7 +122,7 @@ void BidirectionalDijkstras::initForward(){
 
 void BidirectionalDijkstras::initRevered(){
     reverse_longest_index.second = nullptr;
-    for(int32_t index = reverse_longest_index.first - 1; index > reverse_longest_index.first; --index){
+    for(int32_t index = reverse_longest_index.first - 1; index > forward_longest_index.first; --index){
         if(track_list.at(index).nis.empty()){
             continue;
         }
@@ -160,6 +162,10 @@ void BidirectionalDijkstras::findPath(MatchPathResult &path)
             }
 
             forward_close_list[dsegment_id] = node;
+
+            if((dsegment_id >> 1) == 2059757){
+                node = node;
+            }
 
             if(node->current_len < node->total_len){
                 std::shared_ptr<SegmentInfo> segment_info = datamanager->GetSegmentInfoById(node->dsegment_id >> 1);
@@ -203,6 +209,10 @@ void BidirectionalDijkstras::findPath(MatchPathResult &path)
             }
 
             reverse_close_list[dsegment_id] = node;
+
+            if((dsegment_id >> 1) == 2059757){
+                node = node;
+            }
 
             if(node->current_len < node->total_len){
                 std::shared_ptr<SegmentInfo> segment_info = datamanager->GetSegmentInfoById(node->dsegment_id >> 1);
@@ -301,8 +311,9 @@ void BidirectionalDijkstras::constructPoints(const std::vector<uint32_t> & dsegm
         }
 
         const uint32_t &dsegment_id_back = dsegment_ids.back();
-        const uint32_t &segment_id_back = dsegment_id_back << 1;
+        const uint32_t &segment_id_back = dsegment_id_back >> 1;
 
+        psc = pre_segment_cost.find(dsegment_id_back);
         for(const auto & ni : track_list[psc->second.neart_index.back()].nis){
             if(ni.way_info->id == segment_id_back){
                 e_segment_index = ni.project_point_segment;
@@ -313,130 +324,6 @@ void BidirectionalDijkstras::constructPoints(const std::vector<uint32_t> & dsegm
         gendsegmentPoints(dsegment_id_back, -1, e_segment_index, poistions);
     }
     poistions.emplace_back(last_point);
-
-//    if(dsegment_ids.size() == 1){
-//        std::shared_ptr<SegmentInfo> si_front = datamanager->GetSegmentInfoById(dsegment_ids.front());
-//
-//        uint32_t s_segment_index = 1;
-//        uint32_t e_segment_index = si_front->positions.size() - 1;
-//
-//        const uint32_t &dsegment_id_front = dsegment_ids.front();
-//        auto psc = pre_segment_cost.find(dsegment_id_front);
-//        if(psc != pre_segment_cost.end()){
-//            for(const auto & ni : track_list[psc->second.neart_index.front()].nis){
-//                if(ni.way_info->id == dsegment_id_front>>1){
-//                    s_segment_index = ni.project_point_segment;
-//                    break;
-//                }
-//            }
-//
-//            for(const auto & ni : track_list[psc->second.neart_index.back()].nis){
-//                if(ni.way_info->id == dsegment_id_front>>1){
-//                    e_segment_index = ni.project_point_segment;
-//                    break;
-//                }
-//            }
-//        }
-//
-//        if(s_segment_index == e_segment_index){
-//
-//        }
-//        else if(dsegment_id_front & 0x1){
-//            if(s_segment_index >= e_segment_index){
-//                for(uint32_t pindex = s_segment_index; pindex >= e_segment_index; --pindex){
-//                    poistions.emplace_back(si_front->positions.at(pindex));
-//                }
-//            }
-//        }
-//        else{
-//            for(uint32_t pindex = s_segment_index; pindex < e_segment_index; ++pindex){
-//                poistions.emplace_back(si_front->positions.at(pindex));
-//            }
-//        }
-//    }
-//    else{
-//        {
-//            const uint32_t &dsegment_id_front = dsegment_ids.front();
-//            std::shared_ptr<SegmentInfo> si_front = datamanager->GetSegmentInfoById(dsegment_id_front >> 1);
-//
-//            uint32_t s_segment_index = 1;
-//            auto psc = pre_segment_cost.find(dsegment_id_front);
-//            if(psc != pre_segment_cost.end()){
-//                for(const auto & ni : track_list[psc->second.neart_index.front()].nis){
-//                    if(ni.way_info->id == dsegment_id_front>>1){
-//                        s_segment_index = ni.project_point_segment;
-//                        break;
-//                    }
-//                }
-//            }
-//
-//            if(dsegment_id_front & 0x1){
-//                for(uint32_t pindex = s_segment_index - 1; pindex > 0; --pindex){
-//                    poistions.emplace_back(si_front->positions.at(pindex));
-//                }
-//            }
-//            else{
-//                for(uint32_t pindex = s_segment_index; pindex < (si_front->positions.size() - 1); ++pindex){
-//                    poistions.emplace_back(si_front->positions.at(pindex));
-//                }
-//            }
-//        }
-//
-//        for(uint32_t s_index = 1; s_index < (dsegment_ids.size() - 1); ++s_index){
-//            const uint32_t &dsegment_id = dsegment_ids.at(s_index);
-//            std::shared_ptr<SegmentInfo> si = datamanager->GetSegmentInfoById(dsegment_id >> 1);
-//            if(dsegment_id & 0x1){
-//                for(int32_t pindex = si->positions.size() - 1; pindex > 0; --pindex){
-//                    poistions.emplace_back(si->positions.at(pindex));
-//                }
-//            }
-//            else{
-//                for(int32_t pindex = 0; pindex < si->positions.size() - 1; ++pindex){
-//                    poistions.emplace_back(si->positions.at(pindex));
-//                }
-//            }
-//        }
-//        {
-//            const uint32_t &dsegment_id_back = dsegment_ids.back();
-//            std::shared_ptr<SegmentInfo> si_back = datamanager->GetSegmentInfoById(dsegment_id_back >> 1);
-//
-//            uint32_t e_segment_index = si_back->positions.size();
-//            auto psc = pre_segment_cost.find(dsegment_id_back);
-//            if(psc != pre_segment_cost.end()){
-//                for(const auto & ni : track_list[psc->second.neart_index.back()].nis){
-//                    if(ni.way_info->id == dsegment_id_back>>1){
-//                        e_segment_index = ni.project_point_segment;
-//                        break;
-//                    }
-//                }
-//            }
-//
-//            if(dsegment_id_back & 0x1){
-//                for(uint32_t pindex = si_back->positions.size() - 1; pindex >= e_segment_index; --pindex){
-//                    poistions.emplace_back(si_back->positions.at(pindex));
-//                }
-//            }
-//            else{
-//                for(uint32_t pindex = 0; pindex < e_segment_index; ++pindex){
-//                    poistions.emplace_back(si_back->positions.at(pindex));
-//                }
-//            }
-//        }
-//    }
-//    {
-//        const uint32_t &dsegment_id_back = dsegment_ids.back();
-//
-//        auto psc = pre_segment_cost.find(dsegment_id_back);
-//        if(psc != pre_segment_cost.end()){
-//
-//            for(const auto & ni : track_list[psc->second.neart_index.back()].nis){
-//                if(ni.way_info->id == dsegment_id_back>>1){
-//                    poistions.emplace_back(ni.project_point);
-//                    break;
-//                }
-//            }
-//        }
-//    }
 }
 
 // Reconstruct the path from both directions
