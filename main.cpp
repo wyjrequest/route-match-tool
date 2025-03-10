@@ -2322,9 +2322,9 @@ int main(int argc, const char *argv[])
         std::cout << len << std::endl;
         return 1;
     }
-    if(0){
+    if(1){
         // download_data("zto_nav_v4_gc_shanghai"); // toll
-        download_data("zto_nav_v3_gc_motorway"); //
+        download_data("zto_nav_v3_gc_motorway");    //
         return 1;
     }
     if(0){
@@ -2334,4 +2334,3 @@ int main(int argc, const char *argv[])
     route_match_processing(argc, argv);
     return 1;
 }
-

@@ -43,12 +43,23 @@ struct Node {
     Node(uint32_t dsegment_id, float f, bool is_neart_segment = true, double current_len = 0.0, double total_len = 0.0, std::shared_ptr<Node> parent = nullptr)
         : dsegment_id(dsegment_id), f(f), is_neart_segment(is_neart_segment), current_len(current_len), total_len(total_len), parent(parent) {}
 
-    bool operator>(const std::shared_ptr<Node>& other) const {
-        return f > other->f; // priority queue orders nodes by f
+    // bool operator<(const std::shared_ptr<Node>& other) const {
+    //     return f < other->f; // priority queue orders nodes by f
+    // }
+    // bool operator>(const std::shared_ptr<Node>& other) const {
+    //     return f > other->f; // priority queue orders nodes by f
+    // }
+};
+
+struct CompareByNode {
+    bool operator()(const std::shared_ptr<Node>& a, const std::shared_ptr<Node>& b) const {
+        return a->f > b->f;
     }
 };
 
-typedef std::priority_queue<std::shared_ptr<Node>, std::vector<std::shared_ptr<Node>>, std::greater<std::shared_ptr<Node>>> NodeQueue;
+
+// typedef std::priority_queue<std::shared_ptr<Node>, std::vector<std::shared_ptr<Node>>, std::greater<std::shared_ptr<Node>>> NodeQueue;
+typedef std::priority_queue<std::shared_ptr<Node>, std::vector<std::shared_ptr<Node>>, CompareByNode> NodeQueue;
 
 struct TrackInfo{
     Point2D pt;
@@ -58,10 +69,10 @@ struct TrackInfo{
 };
 
 struct SegmentNeartCost{
-    uint32_t segment_id;
+    uint32_t dsegment_id;
     double factor; // f = (square(d) + (angle * 4)), factor = (f1 + f2 ..fn)/ square(n) / 400.0;
     std::vector<uint32_t> neart_index;
-    SegmentNeartCost(): segment_id(0), factor(0.0), neart_index(){}
+    SegmentNeartCost(): dsegment_id(0), factor(0.0), neart_index(){}
 };
 
 struct SectionInfo{

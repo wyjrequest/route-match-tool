@@ -19,7 +19,7 @@ BidirectionalDijkstras::BidirectionalDijkstras(std::shared_ptr<DataManger> dm,
         for(const auto & ni : nis){
             dsegmentid = (ni.way_info->id << 1) + ni.is_reverse;
             if(pre_segment_cost.find(dsegmentid) == pre_segment_cost.end()){
-                pre_segment_cost[dsegmentid].segment_id = dsegmentid;
+                pre_segment_cost[dsegmentid].dsegment_id = dsegmentid;
             }
             pre_segment_cost[dsegmentid].factor += (ni.distance + ni.angle * 4);
             pre_segment_cost[dsegmentid].neart_index.emplace_back(i);
@@ -61,18 +61,19 @@ double BidirectionalDijkstras::currentExtendLen(const NearestInfo & ni, bool is_
 
 std::shared_ptr<Node> BidirectionalDijkstras::dsegmentIdToNode(uint32_t dsegment_id, bool is_reverse, std::shared_ptr<Node> parent){
     auto pec = pre_segment_cost.find(dsegment_id);
-    bool is_neart_segment = pec != pre_segment_cost.end();
+    bool not_neart_segment = (pec == pre_segment_cost.end());
 
-    if(!is_neart_segment){
+    if(not_neart_segment){
         const auto & si = datamanager->GetSegmentInfoById(dsegment_id >> 1);
         double len = si->length;
         double f = len;
         double total = 0.0;
         if(parent){
             f += parent->f;
+            len += parent->current_len;
             total = parent->total_len;
         }
-        return std::make_shared<Node>(dsegment_id, f, is_neart_segment, len, total, parent);
+        return std::make_shared<Node>(dsegment_id, f, not_neart_segment, len, total, parent);
     }
     else{
         const SegmentNeartCost & snc = pec->second;
@@ -87,7 +88,11 @@ std::shared_ptr<Node> BidirectionalDijkstras::dsegmentIdToNode(uint32_t dsegment
             }
         }
 
-        std::shared_ptr<Node> node = std::make_shared<Node>(dsegment_id, len, is_neart_segment, len, totalExtendLen(pindex, is_reverse), parent);
+        if(parent){
+            f += parent->f;
+        }
+
+        std::shared_ptr<Node> node = std::make_shared<Node>(dsegment_id, f, not_neart_segment, len, totalExtendLen(pindex, is_reverse), parent);
 
         if(is_reverse){
             if(reverse_longest_index.first > pindex){
@@ -163,7 +168,7 @@ void BidirectionalDijkstras::findPath(MatchPathResult &path)
 
             forward_close_list[dsegment_id] = node;
 
-            if((dsegment_id >> 1) == 2059757){
+            if((dsegment_id >> 1) == 1400060 || (dsegment_id >> 1) == 474972){
                 node = node;
             }
 
@@ -210,7 +215,7 @@ void BidirectionalDijkstras::findPath(MatchPathResult &path)
 
             reverse_close_list[dsegment_id] = node;
 
-            if((dsegment_id >> 1) == 2059757){
+            if((dsegment_id >> 1) == 1400060 || (dsegment_id >> 1) == 474972){
                 node = node;
             }
 
@@ -282,11 +287,13 @@ void BidirectionalDijkstras::constructPoints(const std::vector<uint32_t> & dsegm
     const uint32_t &segment_id_front = dsegment_id_front >> 1;
 
     auto psc = pre_segment_cost.find(dsegment_id_front);
-    for(const auto & ni : track_list[psc->second.neart_index.front()].nis){
-        if(ni.way_info->id == segment_id_front){
-            poistions.emplace_back(ni.project_point);
-            s_segment_index = ni.project_point_segment;
-            break;
+    if(psc != pre_segment_cost.end()){
+        for(const auto & ni : track_list[psc->second.neart_index.front()].nis){
+            if(ni.way_info->id == segment_id_front){
+                poistions.emplace_back(ni.project_point);
+                s_segment_index = ni.project_point_segment;
+                break;
+            }
         }
     }
 
@@ -314,16 +321,21 @@ void BidirectionalDijkstras::constructPoints(const std::vector<uint32_t> & dsegm
         const uint32_t &segment_id_back = dsegment_id_back >> 1;
 
         psc = pre_segment_cost.find(dsegment_id_back);
-        for(const auto & ni : track_list[psc->second.neart_index.back()].nis){
-            if(ni.way_info->id == segment_id_back){
-                e_segment_index = ni.project_point_segment;
-                last_point = ni.project_point;
-                break;
+        if(psc != pre_segment_cost.end()){
+            for(const auto & ni : track_list[psc->second.neart_index.back()].nis){
+                if(ni.way_info->id == segment_id_back){
+                    e_segment_index = ni.project_point_segment;
+                    last_point = ni.project_point;
+                    break;
+                }
             }
         }
         gendsegmentPoints(dsegment_id_back, -1, e_segment_index, poistions);
     }
-    poistions.emplace_back(last_point);
+
+    if(last_point.x != 0 && last_point.y != 0){
+        poistions.emplace_back(last_point);
+    }
 }
 
 // Reconstruct the path from both directions

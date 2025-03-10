@@ -16,6 +16,7 @@
 
 void download_data(const std::string & table_name, int32_t max_row_nuber){
     // 数据库连接信息
+    // std::string conninfo = "host=10.1.171.71 port=5434 dbname=zto_deal user=postgres password=zto";
     std::string conninfo = "host=10.1.171.71 port=5434 dbname=zto_deal user=postgres password=zto";
 
     // 连接数据库
@@ -145,8 +146,9 @@ void getTableLastSectionCode(PGconn* conn, std::vector<std::string > & section_c
 void insert_data(PGconn* conn, const std::string & road_section_code, const std::string& road_info, const std::string& gmt_create, const std::string& bd_geom, const std::string& st_geom) {
     // std::cout << "Connected to database successfully!" << std::endl;
 
+    // iov_track_road_info
     // 构造 SQL 插入语句
-    std::string query = "INSERT INTO iov_track_road_info (road_section_code, road_info, gmt_create, bd_geom, standard_geom) VALUES "
+    std::string query = "INSERT INTO track_to_road_test (road_section_code, road_info, gmt_create, bd_geom, standard_geom) VALUES "
                         "($1::varchar(200), $2::json, TO_TIMESTAMP($3, 'YYYYMMDD'), ST_GeomFromText($4, 4326), ST_GeomFromText($5, 4326)) "
                         "ON CONFLICT (road_section_code) "
                         "DO UPDATE SET "
@@ -248,7 +250,7 @@ bool processRouteSection(const std::string &section_code, PGconn* conn, const ch
             // 提取数据
             const std::string & points = root.get<std::string>("points");
 
-            std::cout << "coordinate transformation gcj02_to_bd09..." << std::endl;
+            // std::cout << "coordinate transformation gcj02_to_bd09..." << std::endl;
             std::vector<Point2D> coordlist;
             {
                 std::vector<std::string> pointlist;
@@ -313,6 +315,23 @@ void processPoints(const char * ds){
 
 int route_match_processing(int argc, const char *argv[])
 {
+    if(0){
+        NodeQueue nq;
+        nq.push(std::make_shared<Node>(1, 1));
+        nq.push(std::make_shared<Node>(5, 5));
+        nq.push(std::make_shared<Node>(4, 4));
+        nq.push(std::make_shared<Node>(3, 3));
+        nq.push(std::make_shared<Node>(41, 4));
+        nq.push(std::make_shared<Node>(2, 2));
+        nq.push(std::make_shared<Node>(6, 6));
+
+        while(!nq.empty()){
+            auto node = nq.top();
+            nq.pop();
+            std::cout << node->dsegment_id << std::endl;
+        }
+        return 1;
+    }
     if (argc < 3) {
         std::cerr << "Usage: " << argv[0] << "map_path time\n";
         return 1;
@@ -332,8 +351,11 @@ int route_match_processing(int argc, const char *argv[])
         std::cout <<"Number of executed items:" << pre_section_codes.size() << std::endl;
     }
 
-    if(0){
-        section_codes = {"55700-57100"};
+    if(1){
+        // section_codes = {"55700-57100"};
+        // section_codes = {"02828-79100"};
+        // section_codes = {"57600-57100"};
+        section_codes = {"00007-21999"};
         processPoints(argv[2]);
         return 1;
     }

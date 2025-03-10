@@ -816,7 +816,6 @@ int data_processing(int argc, const char *argv[])
     if(std::strcmp(argv[3], "1") == 0){
         std::cout << "build_xml----------" << std::endl;
         buildxml(argv[4], point_hash, way_info);
-
     }
     else{
         std::cout << "build_data----------" << std::endl;
