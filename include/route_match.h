@@ -13,8 +13,9 @@
 #else
 #include <postgresql/libpq-fe.h>
 #endif
-
-void download_data(const std::string & table_name, int32_t max_row_nuber = 1000);
+void download_data_new(const std::string & table_name, int32_t max_row_nuber = 1000);
+void download_shigong_data(const std::string & table_name, int32_t max_row_nuber = 10000);
+void download_data(const std::string & table_name, int32_t max_row_nuber = 10000);
 int  route_match_processing(int argc, const char *argv[]);
 
 #endif

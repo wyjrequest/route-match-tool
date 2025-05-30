@@ -148,7 +148,7 @@ void BidirectionalDijkstras::initialization(){
     initRevered();
 }
 
-void BidirectionalDijkstras::findPath(MatchPathResult &path)
+void BidirectionalDijkstras::findPath()
 {
     while (!forward_open_list.empty() || !reverse_open_list.empty()) {
         // Expand from the start side
@@ -168,7 +168,7 @@ void BidirectionalDijkstras::findPath(MatchPathResult &path)
 
             forward_close_list[dsegment_id] = node;
 
-            if((dsegment_id >> 1) == 1400060 || (dsegment_id >> 1) == 474972){
+            if((dsegment_id >> 1) == 2059757){
                 node = node;
             }
 
@@ -215,7 +215,7 @@ void BidirectionalDijkstras::findPath(MatchPathResult &path)
 
             reverse_close_list[dsegment_id] = node;
 
-            if((dsegment_id >> 1) == 1400060 || (dsegment_id >> 1) == 474972){
+            if((dsegment_id >> 1) == 2059757){
                 node = node;
             }
 
@@ -247,9 +247,39 @@ void BidirectionalDijkstras::findPath(MatchPathResult &path)
             }
         }
     }
+}
 
-    constructPath(path);
-    constructSectionInfo(path);
+
+#include "outgeojson.h"
+static OutGeomJson shigong_file("shigong.geojson");
+uint32_t BidirectionalDijkstras::addConstructionInformation(){
+    findPath();
+    std::vector<uint32_t> result_dsegment_ids;
+    constructPath(result_dsegment_ids);
+
+    uint32_t find_size = result_dsegment_ids.size();
+    if(find_size){
+        for(auto dsegment_id : result_dsegment_ids){
+            const auto si = datamanager->GetSegmentInfoById(dsegment_id >> 1);
+            si->is_construction = true;
+            shigong_file.add_line(si->positions, {{"osmid", std::to_string(dsegment_id >> 1)}});
+        }
+    }
+    return find_size;
+}
+
+void BidirectionalDijkstras::constructMatchPathResult(MatchPathResult &path)
+{
+    findPath();
+    if(path.is_slope){
+        MatchPathResult tmp;
+        constructPath(tmp);
+        constructSectionInfoSlope(tmp);
+        path.slop_list = std::move(tmp.slop_list);
+    }else{
+        constructPath(path);
+        constructSectionInfo(path);
+    }
 }
 
 void BidirectionalDijkstras::gendsegmentPoints(const uint32_t dsegment_id, const int32_t start_index, const int32_t end_index, std::vector<Point2D> & poistions){
@@ -338,9 +368,8 @@ void BidirectionalDijkstras::constructPoints(const std::vector<uint32_t> & dsegm
     }
 }
 
-// Reconstruct the path from both directions
-void BidirectionalDijkstras::constructPath(MatchPathResult &path) {
-
+void BidirectionalDijkstras::constructPath(MatchPathResult &path)
+{
     std::vector<uint32_t> dsegment_ids;
     for(int32_t forward_index = 0; forward_index < forward_result.size(); ++forward_index){
         dsegment_ids.clear();
@@ -368,14 +397,54 @@ void BidirectionalDijkstras::constructPath(MatchPathResult &path) {
     }
 }
 
+// Reconstruct the path from both directions
+void BidirectionalDijkstras::constructPath(std::vector<uint32_t> &result_dsegment_ids) {
+    std::vector<uint32_t> dsegment_ids;
+    for(int32_t forward_index = 0; forward_index < forward_result.size(); ++forward_index){
+        dsegment_ids.clear();
+        auto node = forward_result.at(forward_index);
+        while(node){
+            dsegment_ids.emplace_back(node->dsegment_id);
+            node = node->parent;
+        }
+
+        std::reverse(dsegment_ids.begin(), dsegment_ids.end());
+        result_dsegment_ids.insert(result_dsegment_ids.end(), dsegment_ids.begin(), dsegment_ids.end());
+    }
+
+    for(int32_t reverse_index = reverse_result.size() -1; reverse_index >= 0; --reverse_index){
+        dsegment_ids.clear();
+        auto node = reverse_result.at(reverse_index);
+        while(node){
+            dsegment_ids.emplace_back(node->dsegment_id);
+            node = node->parent;
+        }
+
+        result_dsegment_ids.insert(result_dsegment_ids.end(), dsegment_ids.begin(), dsegment_ids.end());
+    }
+}
+
 void BidirectionalDijkstras::constructSectionInfo(MatchPathResult &path){
     SectionInfo ramp_info;
     SectionInfo slep_info;
-    for(uint32_t index = 0; index < track_list.size(); ++index){
+    SectionInfo turn_info;
+    SectionInfo construction_info;
+    SectionInfo dangers_info;
+
+    for(int32_t index = 0; index < track_list.size(); ++index){
+        bool is_highway = false;
         for(const auto & ni : track_list[index].nis){
             uint32_t dsegment_id = (ni.way_info->id << 1) + ni.is_reverse;
             if(std::find(path.dsegment_ids.begin(), path.dsegment_ids.end(), dsegment_id) == path.dsegment_ids.end()){
                 continue;
+            }
+
+            if(!is_highway &&
+                    (ni.way_info->highway_type == Options_Highway_motorway ||
+                     ni.way_info->highway_type == Options_Highway_motorway_link ||
+                     ni.way_info->highway_type == Options_Highway_trunk ||
+                     ni.way_info->highway_type == Options_Highway_trunk_link)){
+                is_highway = true;
             }
 
             if(ni.way_info->highway_type == Options_Highway::Options_Highway_motorway_link || ni.way_info->highway_type == Options_Highway::Options_Highway_trunk_link){
@@ -410,8 +479,172 @@ void BidirectionalDijkstras::constructSectionInfo(MatchPathResult &path){
                 }
                 slep_info = {-1, -1, 0.0};
             }
+
+            if(ni.way_info->is_construction){
+                if(construction_info.start_index == -1){
+                    construction_info.start_index = index;
+                    construction_info.end_index = index;
+                }else{
+                    construction_info.end_index = index;
+                    construction_info.len += track_list[index].distance_pre;
+                }
+            }
+            else{
+                if(construction_info.start_index != construction_info.end_index){
+                    if(construction_info.len > 1000.0){
+                        path.construction_list.push_back(construction_info);
+                    }
+                   //  construction_info = {-1, -1, 0.0};
+                }
+                construction_info = {-1, -1, 0.0};
+            }
+
+            if(ni.way_info->has_accident &&
+                     ni.way_info->accident_section.s_seg_index <= ni.project_point_segment &&
+                     ni.project_point_segment <= ni.way_info->accident_section.e_seg_index){
+                if(dangers_info.start_index == -1){
+                    dangers_info.start_index = index;
+                    dangers_info.end_index = index;
+                }else{
+                    dangers_info.end_index = index;
+                    dangers_info.len += track_list[index].distance_pre;
+                }
+            }
+            else{
+                if(dangers_info.start_index != dangers_info.end_index){
+                    path.dangers_list.push_back(dangers_info);
+                }
+                dangers_info = {-1, -1, 0.0};
+            }
             break;
         }
+
+        // dangqiandianzhuanwanbanjing
+        if(track_list[index].nis.empty() || !is_highway){
+            continue;
+        }
+
+        int32_t next_index = index + 1;
+        double next_len = 0;
+
+        for(; next_index < track_list.size() ; ++next_index){
+            bool is_next_highway = false;
+            for(const auto & ni : track_list[next_index].nis){
+                uint32_t dsegment_id = (ni.way_info->id << 1) + ni.is_reverse;
+                if(std::find(path.dsegment_ids.begin(), path.dsegment_ids.end(), dsegment_id) == path.dsegment_ids.end()){
+                    continue;
+                }
+
+                if(ni.way_info->highway_type == Options_Highway_motorway ||
+                         ni.way_info->highway_type == Options_Highway_motorway_link ||
+                         ni.way_info->highway_type == Options_Highway_trunk ||
+                         ni.way_info->highway_type == Options_Highway_trunk_link){
+                    is_next_highway = true;
+                    break;
+                }
+            }
+
+            if(is_next_highway == false){
+                break;
+            }
+
+            next_len += track_list[next_index].distance_pre;
+            if(next_len > 100.0 || track_list[next_index].nis.empty()){
+                break;
+            }
+        }
+
+        if(next_len < 100.0 || next_index <= turn_info.end_index){
+            continue;
+        }
+
+        int32_t prev_index = index - 1;
+        double prev_len = 0;
+        for(; prev_index >= 0; --prev_index){
+            bool is_prev_highway = false;
+            for(const auto & ni : track_list[prev_index].nis){
+                uint32_t dsegment_id = (ni.way_info->id << 1) + ni.is_reverse;
+                if(std::find(path.dsegment_ids.begin(), path.dsegment_ids.end(), dsegment_id) == path.dsegment_ids.end()){
+                    continue;
+                }
+
+                if(ni.way_info->highway_type == Options_Highway_motorway ||
+                         ni.way_info->highway_type == Options_Highway_motorway_link ||
+                         ni.way_info->highway_type == Options_Highway_trunk ||
+                         ni.way_info->highway_type == Options_Highway_trunk_link){
+                    is_prev_highway = true;
+                    break;
+                }
+            }
+
+            if(is_prev_highway == false){
+                break;
+            }
+
+            prev_len += track_list[prev_index + 1].distance_pre;
+            if(prev_len > 100.0 || track_list[prev_index].nis.empty()){
+                break;
+            }
+        }
+
+        if(prev_len < 100.0){
+            continue;
+        }
+
+        double a1 = CalculateAngle(track_list[prev_index].pt, track_list[index].pt);
+        double a2 = CalculateAngle(track_list[index].pt, track_list[next_index].pt);
+        double a = abs(a1 - a2);
+        if(a > 180){
+            a = 360 - a;
+        }
+
+        double l = (prev_len + next_len);
+        double r = 28.6478897 * (l/a);
+        if(r < 300){
+            if(path.turn_list.size() && path.turn_list.back().end_index >= prev_index){
+                // path.turn_list[path.turn_list.size() - 1].end_index = next_index;
+                // path.turn_list[path.turn_list.size() - 1].len += l;
+                auto & back_info = path.turn_list[path.turn_list.size() - 1];
+                back_info.end_index = next_index;
+                back_info.len = 0.0;
+                for(int32_t t_index = back_info.start_index + 1; t_index <= back_info.end_index; ++t_index){
+                            back_info.len += track_list[t_index].distance_pre;
+                }
+            }else{
+                turn_info.end_index = next_index;
+
+                if(turn_info.start_index == -1){
+                    turn_info.start_index = prev_index;
+                    turn_info.len = l;
+                    turn_info.turn_angle = 30.0;
+                }
+                else{
+                    turn_info.len = 0.0;
+                    for(int32_t t_index = turn_info.start_index + 1; t_index <=turn_info.end_index; ++t_index){
+                        turn_info.len += track_list[t_index].distance_pre;
+                    }
+                }
+                // turn_info.len += l;
+                // turn_info.turn_angle = 30.0;
+                // turn_info.end_index = next_index;
+            }
+        }
+        else{
+            if(turn_info.start_index != -1){
+                path.turn_list.push_back(turn_info);
+                turn_info = {-1, -1, 0.0};
+            }
+        }
+    }
+
+    if(dangers_info.start_index != dangers_info.end_index){
+        path.dangers_list.push_back(dangers_info);
+        dangers_info = {-1, -1, 0.0};
+    }
+
+    if(turn_info.start_index != -1){
+        path.turn_list.push_back(turn_info);
+        turn_info = {-1, -1, 0.0};
     }
 
     if(ramp_info.start_index != ramp_info.end_index){
@@ -424,30 +657,77 @@ void BidirectionalDijkstras::constructSectionInfo(MatchPathResult &path){
         slep_info = {-1, -1, 0.0};
     }
 
-    double len = 0.0;
-    int32_t s_index = -1;
-    int32_t e_index = -1;
-    for(const auto & ramp_info : path.ramp_list){
-        len = 0.0;
-        s_index = ramp_info.start_index;
-        e_index = ramp_info.start_index;
-        for(; s_index > 0 && (len < 200.0); --s_index){
-            len += track_list[s_index].distance_pre;
+    if(construction_info.start_index != construction_info.end_index){
+        if(construction_info.len > 1000.0){
+            path.construction_list.push_back(construction_info);
         }
+        construction_info = {-1, -1, 0.0};
+    }
 
-        if(s_index != e_index){
-            path.dangers_list.emplace_back(s_index, e_index, len);
-        }
+    // double len = 0.0;
+    // int32_t s_index = -1;
+    // int32_t e_index = -1;
+    // for(const auto & ramp_info : path.ramp_list){
+    //     len = 0.0;
+    //     s_index = ramp_info.start_index;
+    //     e_index = ramp_info.start_index;
+    //     for(; s_index > 0 && (len < 200.0); --s_index){
+    //         len += track_list[s_index].distance_pre;
+    //     }
+    //
+    //     if(s_index != e_index){
+    //         path.dangers_list.emplace_back(s_index, e_index, len);
+    //     }
+    //
+    //     s_index = ramp_info.end_index;
+    //     e_index = ramp_info.end_index;
+    //     len = 0.0;
+    //     for(; (e_index < track_list.size() - 1) && (len < 200.0); ++e_index){
+    //         len += track_list[e_index + 1].distance_pre;
+    //     }
+    //
+    //     if(s_index != e_index){
+    //         path.dangers_list.emplace_back(s_index, e_index, len);
+    //     }
+    // }
+}
 
-        s_index = ramp_info.end_index;
-        e_index = ramp_info.end_index;
-        len = 0.0;
-        for(; (e_index < track_list.size() - 1) && (len < 200.0); ++e_index){
-            len += track_list[e_index + 1].distance_pre;
-        }
+void BidirectionalDijkstras::constructSectionInfoSlope(MatchPathResult &path){
+    SectionInfo slep_info;
 
-        if(s_index != e_index){
-            path.dangers_list.emplace_back(s_index, e_index, len);
+    for(int32_t index = 0; index < track_list.size(); ++index){
+        for(const auto & ni : track_list[index].nis){
+            uint32_t dsegment_id = (ni.way_info->id << 1) + ni.is_reverse;
+            if(std::find(path.dsegment_ids.begin(), path.dsegment_ids.end(), dsegment_id) == path.dsegment_ids.end()){
+                continue;
+            }
+
+            if((ni.is_reverse && ni.way_info->slope_type == Options_Slope::Options_upslope) || (!ni.is_reverse && ni.way_info->slope_type == Options_Slope::Options_downhill)){
+                if(slep_info.start_index == -1){
+                    slep_info.start_index = index;
+                    slep_info.end_index = index;
+                }else{
+                    slep_info.end_index = index;
+                    slep_info.len += track_list[index].distance_pre;
+                }
+            }
+            else{
+                if(slep_info.start_index != slep_info.end_index){
+                    if(slep_info.len > 500.0){
+                        path.slop_list.push_back(slep_info);
+                    }
+                    slep_info = {-1, -1, 0.0};
+                }
+                slep_info = {-1, -1, 0.0};
+            }
+            break;
         }
+    }
+
+    if(slep_info.start_index != slep_info.end_index){
+        if(slep_info.len > 500.0){
+            path.slop_list.push_back(slep_info);
+        }
+        slep_info = {-1, -1, 0.0};
     }
 }

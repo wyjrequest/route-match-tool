@@ -21,11 +21,14 @@ DataManger::DataManger(const std::string & path){
 
     base += ".bin";
 
+    std::cout << "load :" << base.c_str() << std::endl;
     std::ifstream infile(base, std::ios::binary);
     if (!infile) {
         std::cerr << "Error opening file for reading!" << std::endl;
         return;
     }
+
+    int32_t slope_number = 0;
 
     double length = 0.0;
     size_t size = 0;
@@ -80,22 +83,58 @@ DataManger::DataManger(const std::string & path){
             }
         }
 
+        wi->is_standard_trajectory = false;
+        wi->is_construction = false;
+        wi->has_accident = false;
+        wi->accident_section = {std::numeric_limits<int32_t>::max(), -1};
+        wi->max_turn_angle = 0.0;
         length = 0.0;
         size_t position_size = 0;
         infile.read(reinterpret_cast<char*>(&position_size), sizeof(position_size));
         if(position_size){
             wi->positions.resize(position_size);
+            double a1 = 0.0;
+            double a_len = 0.0;
+            int32_t p_index = 0;
+
             for(size_t ps = 0; ps < position_size; ++ps){
                 infile.read(reinterpret_cast<char*>(&wi->positions[ps].x), sizeof(wi->positions[ps].x));
                 infile.read(reinterpret_cast<char*>(&wi->positions[ps].y), sizeof(wi->positions[ps].y));
                 if(ps > 0){
-                    length += haversine_distance(wi->positions[ps - 1], wi->positions[ps]);
+                    double l = haversine_distance(wi->positions[ps - 1], wi->positions[ps]);
+                    a_len += l;
+                    if(a_len > 10.0){
+                        if(p_index == 0){
+                            a1 = CalculateAngle(wi->positions[p_index], wi->positions[ps]);
+                            p_index = ps;
+                        }
+                        else{
+                            double a2 = CalculateAngle(wi->positions[p_index], wi->positions[ps]);
+                            double a = abs(a1 - a2);
+                            if(a > 180){
+                                a = 360 - a;
+                            }
+
+                            if(a > 100){
+                                a = a;
+                            }
+                            wi->max_turn_angle = std::max(wi->max_turn_angle, a);
+                            a1 = a2;
+                            p_index = ps;
+                        }
+                        a_len = 0.0;
+                    }
+
+                    length += l;
                 }
             }
         }
         wi->length = length;
         // std::cout << "<< ID: " << wi->id << ", r:" << r << std::endl;
         waylist[wi->id] = wi;
+        if(wi->slope_type == Options_Slope::Options_downhill){
+            std::cout<<" downhill slope id:" << wi->id << ", number:" << ++slope_number << std::endl;
+        }
     }
     infile.close();
 
@@ -131,11 +170,11 @@ DataManger::DataManger(const std::string & path){
     std::cout << "map data load success!" << std::endl;
 }
 
-void DataManger::GetSegmentInfoByCoord(const uint32_t x, const uint32_t y,
+void DataManger::GetSegmentInfoByCoord(const int32_t x, const int32_t y,
                                        std::vector<std::pair<RBox, std::shared_ptr<SegmentInfo>>> & results)
 {
-    const Point2D ld((x - WEST - 200), y - SOUTH - 200);
-    const Point2D rt((x - WEST + 200), y - SOUTH + 200);
+    const Point2D ld((x - WEST - 100), y - SOUTH - 100);
+    const Point2D rt((x - WEST + 100), y - SOUTH + 100);
 
     const uint32_t rs = ld.x / GRID_RANGE;
     const uint32_t re = rt.x / GRID_RANGE;

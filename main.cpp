@@ -1,9 +1,101 @@
+#include "postgres_database.h"
 #include "route_match.h"
 #include "databuild.h"
 #include "common.h"
 
+void get_section_str(const std::string & json, const char * type, std::vector<std::string > & section_strs){
+    auto s_index = json.find(type);
+    if(s_index == std::string::npos){
+        return;
+    }
+
+    int32_t size = json.size();
+    char * ch = new char[size];
+    memset(ch, 0, size);
+
+    int32_t ch_i = -1;
+    for(int32_t i = s_index; i < size; ++i){
+        const char & c = json.at(i);
+        if(c == ']'){
+            break;
+        }
+        if(c=='{'){
+            if(ch_i != -1){
+                memset(ch, 0, ch_i);
+            }
+            ch_i = 0;
+            continue;
+        }
+        if(ch_i == -1){
+            continue;
+        }
+        else if(c== '}'){
+            if(ch_i > 5){
+                section_strs.emplace_back(ch);
+                memset(ch, 0, ch_i);
+            }
+            ch_i = -1;
+        }else if(c != '\"'){
+            ch[ch_i++] = c;
+        }
+    }
+    delete[] ch;
+}
+
+void setSectionInfoJson(const std::string json){
+    std::vector<std::string> d_section_strs;
+    get_section_str(json, "d_list", d_section_strs);
+    for(const auto & d : d_section_strs){
+        std::vector<std::string> svs;
+        splitstring(d, ',', svs);
+
+        for(const auto & sv : svs){
+            std::vector<std::string> kv;
+            splitstring(sv, ':', kv);
+
+            if(kv.size() == 2){
+                if(kv.at(0).find("s") != std::string::npos){
+                    std::cout << "s:" << atoi(kv.at(1).c_str())<< std::endl;
+                }
+                if(kv.at(0).find("e") != std::string::npos){
+                    std::cout << "e:" << atoi(kv.at(1).c_str())<< std::endl;
+                }
+                if(kv.at(0).find("l") != std::string::npos){
+                    std::cout << "l:" << atof(kv.at(1).c_str())<< std::endl;
+                }
+            }
+        }
+        std::cout << d.c_str() << std::endl;
+    }
+    std::vector<std::string> r_section_strs;
+    get_section_str(json, "r_list", r_section_strs);
+    for(const auto & r : r_section_strs){
+        std::cout << r.c_str() << std::endl;
+    }
+    std::vector<std::string> s_section_strs;
+    get_section_str(json, "s_list", s_section_strs);
+    for(const auto & s : s_section_strs){
+        std::cout << s.c_str() << std::endl;
+    }
+    std::vector<std::string> t_section_strs;
+    get_section_str(json, "t_list", t_section_strs);
+    for(const auto & t : t_section_strs){
+        std::cout << t.c_str() << std::endl;
+    }
+    std::vector<std::string> c_section_strs;
+    get_section_str(json, "c_list", c_section_strs);
+    for(const auto & c : c_section_strs){
+        std::cout << c.c_str() << std::endl;
+    }
+}
+
 int main(int argc, const char *argv[])
 {
+    if(0){
+        const char * json = R"({"d_list":[{"s":1330, "e":1334, "l":529.518708},{"s":1575, "e":1578, "l":592.016334},{"s":1814, "e":1821, "l":562.525541}], "r_list":[{"s":50, "e":67, "l":431.487628},{"s":909, "e":940, "l":822.128887},{"s":1136, "e":1154, "l":1144.331180},{"s":1223, "e":1232, "l":1129.748912},{"s":1286, "e":1326, "l":1723.431096},{"s":1780, "e":1801, "l":1265.192226},{"s":1922, "e":1945, "l":557.158402}], "s_list":[], "t_list":[{"s":51, "e":65, "l":322.354636, "turn_angle":30.000000},{"s":909, "e":942, "l":898.469771, "turn_angle":30.000000},{"s":946, "e":955, "l":494.367586, "turn_angle":30.000000},{"s":1921, "e":1942, "l":562.575362, "turn_angle":30.000000}], "c_list":[]})";
+        setSectionInfoJson(json);
+        return 1;
+    }
     if(0){
         std::vector<std::pair<double, double> > point_list = {{120.562586,28.087412},
                                                               {120.562184,28.08722},
@@ -2322,12 +2414,22 @@ int main(int argc, const char *argv[])
         std::cout << len << std::endl;
         return 1;
     }
-    if(1){
+    if(0){
         // download_data("zto_nav_v4_gc_shanghai"); // toll
-        download_data("zto_nav_v3_gc_motorway");    //
+        // download_data("zto_nav_v3_gc_motorway"); //
+
+        // download_data("from_point_to_guide_hubei_shoudong_20250213_topoy_and_attr"); //
+        // download_data("v2_roads_hubei_hunan_topoy_and_attr");                        //
+
+        // download_shigong_shougong_data();
+        // download_shigong_data("traffic_info");
+        // download_data_iov();
+
+        download_data_road_all("v2_roads_shanghai");
+        // download_data_new("v2_roads_beijing");
         return 1;
     }
-    if(0){
+    if(1){
         return data_processing(argc, argv);
     }
 

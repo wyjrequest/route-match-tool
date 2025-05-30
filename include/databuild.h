@@ -123,13 +123,62 @@ struct RelWayId{
     // RelWayId(const std::shared_ptr<PointInfo> & point_info_): point_info(point_info_){}
 };
 
+static const std::unordered_map<std::string, Options_Highway> road_class_to_highway_types{
+    {"高速公路", Options_Highway_motorway},
+    {"主要大街，城市快速路", Options_Highway_trunk},
+    {"国道", Options_Highway_trunk},
+    {"省道", Options_Highway_primary},
+    {"县道", Options_Highway_secondary},
+    {"九级道路", Options_Highway_service},
+    {"乡镇村道", Options_Highway_tertiary},
+    {"其它道路", Options_Highway_unclassified},
+    {"轮渡", Options_Highway_undefined}
+};
+
 struct WayInfo{
-    uint32_t way_id;
+    uint32_t        way_id;
+    int32_t         width;
+    bool            is_intersection;
     Options_Highway highway_type;
     Options_Oneway  oneway_type;
     Options_Slope   slope_type;
+
     std::vector<uint64_t> rel_node_id;
     std::vector<std::pair<std::string, std::string>> k_v;
+
+    WayInfo() : way_id(0), width(0), is_intersection(false),
+        highway_type(Options_Highway_undefined),
+        oneway_type(Options_Oneway::Options_no),
+        slope_type(Options_Slope::Options_plain),
+        rel_node_id(),
+        k_v(){}
+
+    void set_oneway_by_dir(const char * dir){
+
+        const uint8_t val = atoi(dir) - 1;
+        if(0 <= val && val <= 2){
+            oneway_type = Options_Oneway(val);
+        }
+        else{
+            oneway_type = Options_Oneway::Options_no;
+        }
+    }
+
+    void set_highwaytype_by_roadclass_and_formway(const std::string & roadclass, const std::string & formway){
+
+        auto type_it = road_class_to_highway_types.find(roadclass.c_str());
+        highway_type = (type_it != road_class_to_highway_types.cend()) ? type_it->second : Options_Highway_undefined;
+
+        if(formway.find("IC") != -1){
+            highway_type = Options_Highway_motorway_link;
+        }
+        else if(formway.find("JCT") != -1){
+            highway_type = Options_Highway_motorway_link;
+        }
+        else if(formway.find("匝道") != -1){
+            highway_type = (Options_Highway)(highway_type + 1);
+        }
+    }
 };
 
 #define CALCULATE_POINT_HASH(lon, lat) ((static_cast<uint64_t>(lon * 5965232.35) << 32) + static_cast<uint64_t>(lat * 5965232.35))

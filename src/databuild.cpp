@@ -10,6 +10,148 @@
 #include "tinyxml2.h"
 #include "common.h"
 
+bool readtxt_v2(const char* in_file,
+          std::map<uint64_t, RelWayId> &point_hash,
+          std::vector<WayInfo> &way_info){
+    // 打开文件
+    std::ifstream file(in_file);
+    if (!file.is_open()) {
+        std::cerr << "无法打开文件!" << std::endl;
+        return false;
+    }
+
+    int32_t slope_number = 0;
+
+    uint32_t point_id = 1U;
+    uint32_t way_id = 1U;
+    std::vector<std::string> result;
+    std::string line;
+    while (std::getline(file, line)) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+
+        result.clear();
+        result.reserve(11);
+
+        // 将每行按分隔符分割
+        splitstring(line, ';', result);
+
+        if(result.size() == 12){
+            // 输出拆分后的结果w
+            if(way_id%10000 == 0){
+                std::cout << "<< " << way_id / 10000 << std::endl;
+            }
+
+            WayInfo wi;
+            wi.way_id = way_id;
+
+            const std::string & name =  result.at(0);
+            const std::string & line_geom =  result.at(1);
+            const std::string & form_way =  result.at(3);
+            const std::string & road_class =  result.at(4);
+            const std::string & direction =  result.at(6);
+            const std::string & width =  result.at(7);
+            const std::string & toll =  result.at(8);
+            const std::string & slop =  result.at(11);
+
+            if(!slop.empty() && slop.compare("1") == 0){
+                wi.slope_type = Options_Slope::Options_downhill;
+            }
+
+            if(!width.empty()){
+                wi.width = atoi(width.c_str());
+            }
+
+            if(form_way.find("内部路") != -1){
+                wi.is_intersection = true;
+            }
+
+            wi.oneway_type = Options_Oneway::Options_no;
+            if(direction.size()){
+                wi.set_oneway_by_dir(direction.c_str());
+            }
+            wi.k_v.reserve(7);
+            wi.k_v.emplace_back("oneway", oneway_type_strs.find(wi.oneway_type)->second);
+            wi.set_highwaytype_by_roadclass_and_formway(road_class, form_way);
+            wi.k_v.emplace_back("name", std::move(name));
+
+            bool is_toll = (toll.compare("2") != 0);
+            wi.k_v.emplace_back("toll", is_toll ? "1" : "0");
+
+            if(form_way.find("隧道") != -1 ){
+                wi.k_v.emplace_back("bridge", "true");
+            }
+            if(form_way.find("桥") == 0){
+                wi.k_v.emplace_back("tunnel", "true");
+            }
+
+            if(line_geom.size() > 12){
+                std::string geom;
+                geom.assign(line_geom.begin() + 11, line_geom.end() - 1);
+
+                std::vector<std::string> coordlist;
+                splitstring(geom, ',', coordlist);
+
+                if(coordlist.size() > 1){
+                    wi.rel_node_id.reserve(coordlist.size());
+                    for(size_t index = 0; index < coordlist.size(); ++index){
+                        std::vector<std::string> coord;
+                        splitstring(coordlist.at(index), ' ', coord);
+                        if(coord.size() == 2){
+                            const double lon = atof(coord.at(0).c_str());
+                            const double lat = atof(coord.at(1).c_str());
+                            const uint64_t phv = CALCULATE_POINT_HASH(lon, lat);
+
+                            if(point_hash.find(phv) == point_hash.end()){
+                                point_hash[phv].id = point_id++;
+                            }
+
+                            if(wi.rel_node_id.empty() || wi.rel_node_id.back() !=phv){
+                                wi.rel_node_id.emplace_back(phv);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if(wi.oneway_type == Options_reverse){
+                wi.oneway_type = Options_yes;
+                if(wi.rel_node_id.size() > 1){
+                    std::reverse(wi.rel_node_id.begin(), wi.rel_node_id.end());
+                }
+                if(wi.slope_type) {
+                    wi.slope_type = static_cast<Options_Slope>(static_cast<uint8_t>(wi.slope_type) ^ 3);
+                }
+            }
+
+            if(wi.rel_node_id.size() > 1){
+                auto sph = point_hash.find(wi.rel_node_id.front());
+                auto eph = point_hash.find(wi.rel_node_id.back());
+
+                uint32_t swid = wi.way_id << 1;
+                sph->second.out_way_id.insert(swid);
+                eph->second.in_way_id.insert(swid);
+
+                if(wi.oneway_type == Options_no){
+                    sph->second.in_way_id.insert(swid + 1);
+                    eph->second.out_way_id.insert(swid + 1);
+                }
+            }
+
+            way_info.emplace_back(std::move(wi));
+            // way_info[way_id] = wi;
+            ++way_id;
+            if(wi.slope_type == Options_Slope::Options_downhill){
+                std::cout << "slope_number:"<< ++slope_number << ", slop:" << slop.c_str() << std::endl;
+            }
+        }
+    }
+
+    file.close();
+    return true;
+}
+
 bool readtxt(const char* in_file,
           std::map<uint64_t, RelWayId> &point_hash,
           std::vector<WayInfo> &way_info){
@@ -134,118 +276,6 @@ bool readtxt(const char* in_file,
 
     file.close();
     return true;
-    // // 打开文件
-    // std::ifstream file(in_file);
-    // if (!file.is_open()) {
-    //     std::cerr << "无法打开文件!" << std::endl;
-    //     return false;
-    // }
-
-    // uint32_t point_id = 1U;
-    // uint32_t way_id = 1U;
-    // std::vector<std::string> result;
-    // std::string line;
-    // while (std::getline(file, line)) {
-    //     if (!line.empty() && line.back() == '\r') {
-    //         line.pop_back();
-    //     }
-
-    //     result.clear();
-    //     result.reserve(15);
-
-    //     // 将每行按分隔符分割
-    //     splitstring(line, ';', result);
-
-    //     if(result.size() == 15){
-    //         // 输出拆分后的结果
-    //         std::cout << "<< " << result.at(0).c_str() << std::endl;
-
-    //         WayInfo wi;
-    //         wi.way_id = way_id;
-
-    //         wi.k_v.reserve(6);
-
-    //         std::string highway = kind_strs.find(result.at(14))->second;
-    //         if(highway.compare("unclassified") == 0){
-    //             if(result.at(3).compare("10") == 0 || result.at(3).compare("11") == 0){
-    //                 highway = "motorway_link";
-    //             }
-    //         }
-
-    //         wi.k_v.emplace_back("highway", highway);
-    //         if(result.at(3).compare("30") == 0){
-    //             wi.k_v.emplace_back("bridge", "true");
-    //         }
-
-    //         if(result.at(3).compare("31") == 0){
-    //             wi.k_v.emplace_back("tunnel", "true");
-    //         }
-
-    //         wi.oneway_type = Options_Oneway(atoi(result.at(6).c_str()) - 1);
-    //         wi.k_v.emplace_back("oneway", oneway_type_strs.find(wi.oneway_type)->second);
-    //         wi.k_v.emplace_back("name", result.at(10));
-    //         wi.k_v.emplace_back("price_type", result.at(13).compare("None") == 0 ? "0" : result.at(13));
-    //         // wi.k_v.emplace_back("slope", result.at(15));
-    //         wi.k_v.emplace_back("toll", (result.at(7).compare("1") == 0 ? "1" : "0"));
-    //         wi.k_v.emplace_back("lanes", result.at(8));
-
-    //         if(result.at(11).size() > 3){
-    //             std::string geom;
-    //             geom.assign(result.at(11).begin() + 1, result.at(11).end() - 1);
-
-    //             std::vector<std::string> coordlist;
-    //             splitstring(geom, ',', coordlist);
-
-    //             if(coordlist.size() > 1){
-    //                 for(size_t index = 0; index < coordlist.size(); ++index){
-    //                     std::vector<std::string> coord;
-    //                     splitstring(coordlist.at(index), ' ', coord);
-    //                     if(coord.size() == 2){
-    //                         const double lon = atof(coord.at(0).c_str());
-    //                         const double lat = atof(coord.at(1).c_str());
-    //                         const uint64_t phv = CALCULATE_POINT_HASH(lon, lat);
-
-    //                         if(point_hash.find(phv) == point_hash.end()){
-    //                             point_hash[phv].id = point_id++;//   = RelWayId(std::make_shared<PointInfo>(point_id++, lon, lat, phv));
-    //                         }
-    //                         wi.rel_node_id.emplace_back(phv);
-    //                     }
-    //                 }
-    //             }
-    //         }
-
-    //         if(wi.oneway_type == Options_reverse){
-    //             wi.oneway_type = Options_yes;
-    //             if(wi.rel_node_id.size() > 1){
-    //                 std::reverse(wi.rel_node_id.begin(), wi.rel_node_id.end());
-    //             }
-    //             if(wi.slope_type) {
-    //                 wi.slope_type = static_cast<Options_Slope>(static_cast<uint8_t>(wi.slope_type) ^ 3);
-    //             }
-    //         }
-
-    //         if(wi.rel_node_id.size() > 1){
-    //             auto sph = point_hash.find(wi.rel_node_id.front());
-    //             auto eph = point_hash.find(wi.rel_node_id.back());
-
-    //             uint32_t swid = wi.way_id << 1;
-    //             sph->second.out_way_id.insert(swid);
-    //             eph->second.in_way_id.insert(swid);
-
-    //             if(wi.oneway_type == Options_no){
-    //                 sph->second.in_way_id.insert(swid + 1);
-    //                 eph->second.out_way_id.insert(swid + 1);
-    //             }
-    //         }
-
-    //         way_info.emplace_back(wi);
-    //         // way_info[way_id] = wi;
-    //         ++way_id;
-    //     }
-    // }
-
-    // file.close();
-    // return true;
 }
 
 bool readxml(const char* in_file,
@@ -623,13 +653,15 @@ void builddata(const char* out_file,
         }
 
         if(way.slope_type != Options_Slope::Options_plain){
-            std::cout << way.way_id << ":" << way.slope_type<<std::endl;
+            std::cout << way.way_id << ":" << static_cast<uint8_t>(way.slope_type) << std::endl;
         }
 
         outbin.write(reinterpret_cast<const char*>(&way.way_id), sizeof(uint32_t));
         outbin.write(reinterpret_cast<const char*>(&way.highway_type), sizeof(Options_Highway));
         outbin.write(reinterpret_cast<const char*>(&way.oneway_type), sizeof(Options_Oneway));
         outbin.write(reinterpret_cast<const char*>(&way.slope_type), sizeof(Options_Slope));
+        outbin.write(reinterpret_cast<const char*>(&way.width), sizeof(int32_t));
+        outbin.write(reinterpret_cast<const char*>(&way.is_intersection), sizeof(bool));
 
         // write forward way
         {
@@ -802,7 +834,8 @@ int data_processing(int argc, const char *argv[])
     }
     else{
         std::cout << "read_txt----------" << std::endl;
-        is_completed = readtxt(argv[2], point_hash, way_info);
+        // is_completed = readtxt(argv[2], point_hash, way_info);
+        is_completed = readtxt_v2(argv[2], point_hash, way_info);
     }
 
     if(!is_completed){
@@ -810,8 +843,8 @@ int data_processing(int argc, const char *argv[])
         return 1;
     }
 
-    std::cout << "slip_way----------" << std::endl;
-    slipway(point_hash, way_info);
+    // std::cout << "slip_way----------" << std::endl;
+    // slipway(point_hash, way_info);
 
     if(std::strcmp(argv[3], "1") == 0){
         std::cout << "build_xml----------" << std::endl;

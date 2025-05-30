@@ -1,5 +1,7 @@
 #include "route_match.h"
+#include "postgres_database.h"
 #include "http_request.h"
+#include "outgeojson.h"
 #include "match.h"
 #include <string>
 #include <vector>
@@ -8,188 +10,14 @@
 #include <atomic>
 #include <thread>
 
-#ifdef IS_CENTOS
-#include <libpq-fe.h>
-#else
-#include <postgresql/libpq-fe.h>
-#endif
-
-void download_data(const std::string & table_name, int32_t max_row_nuber){
-    // 数据库连接信息
-    // std::string conninfo = "host=10.1.171.71 port=5434 dbname=zto_deal user=postgres password=zto";
-    std::string conninfo = "host=10.1.171.71 port=5434 dbname=zto_deal user=postgres password=zto";
-
-    // 连接数据库
-    PGconn* conn = PQconnectdb(conninfo.c_str());
-    if (PQstatus(conn) != CONNECTION_OK) {
-        std::cerr << "Connection to database failed: " << PQerrorMessage(conn) << std::endl;
-        PQfinish(conn);
-        return;
-    }
-
-    std::cout << "Connected to database successfully!" << std::endl;
-
-    // 构造查询语句
-    std::string query = "SELECT COUNT(*) FROM public."+table_name+";";
-
-    // 执行查询
-    PGresult* res = PQexec(conn, query.c_str());
-
-    // 检查查询结果
-    if (PQresultStatus(res) != PGRES_TUPLES_OK) {
-        std::cerr << "Query failed: " << PQerrorMessage(conn) << std::endl;
-        PQclear(res);
-        PQfinish(conn);
-        return;
-    }
-
-    // 获取总行数
-    std::string row_count_str = PQgetvalue(res, 0, 0);
-    int32_t row_count = atoi(row_count_str.c_str());
-    PQclear(res);
-
-    std::cout << "总行数:" << row_count << std::endl;
-
-    std::ofstream file(std::string(table_name + ".txt").c_str());
-    if (!file.is_open()) {
-        std::cerr << "Error opening file for writing!" << std::endl;
-        PQclear(res);
-        PQfinish(conn);
-        return;
-    }
-
-    std::string link_id_max = "";
-
-    int32_t index = 0;
-    do
-    {
-        // 执行查询
-        if(link_id_max.empty()){
-            query = "SELECT x.link_id,x.kind,x.form,x.is_highway,x.dir,ST_AsText(x.geom),x.len,x.toll,x.price_type,x.\"name\",x.slope,x.slope_angle,x.lane_n FROM public." + table_name + " x order by x.link_id LIMIT "+std::to_string(max_row_nuber)+" OFFSET 0";
-        }else{
-            query = "SELECT x.link_id,x.kind,x.form,x.is_highway,x.dir,ST_AsText(x.geom),x.len,x.toll,x.price_type,x.\"name\",x.slope,x.slope_angle,x.lane_n FROM public." + table_name + " x where x.link_id > '"+ link_id_max +"' order by x.link_id LIMIT "+std::to_string(max_row_nuber);
-        }
-
-        // 执行查询
-        res = PQexec(conn, query.c_str());
-
-        // 检查查询结果
-        if (PQresultStatus(res) != PGRES_TUPLES_OK) {
-            std::cerr << "Query failed: " << PQerrorMessage(conn) << std::endl;
-            PQclear(res);
-            break;
-        }
-
-        // 获取行数和列数
-        int rows = PQntuples(res);
-
-        if (rows == 0) {
-            std::cout << "No more records to fetch." << std::endl;
-        } else {
-            std::cout << ((index / 1000) + 1) << std::endl;
-
-            int cols = PQnfields(res);
-            // 输出每一行数据
-            for (int i = 0; i < rows; ++i) {
-                for (int j = 1; j < cols; ++j) {
-                    if(j > 1){
-                        file << ";";
-                    }
-                    file << PQgetvalue(res, i, j);
-                }
-                file << std::endl;
-
-                if(i == rows - 1){
-                    link_id_max = PQgetvalue(res, i, 0);
-                }
-            }
-        }
-        // 清理资源
-        PQclear(res);
-
-        if(rows < max_row_nuber){
-            break;
-        }
-        index += max_row_nuber;
-    }
-    while(true);
-
-    file.close();
-    PQfinish(conn);
-}
-
-void getTableLastSectionCode(PGconn* conn, std::vector<std::string > & section_code){
-    std::string query = "SELECT road_section_code FROM iov_track_road_info"; // WHERE ctid = (SELECT max(ctid) FROM iov_track_road_info
-
-    // 执行查询
-    PGresult* res = PQexec(conn, query.c_str());
-
-    // 检查查询是否成功
-    if (PQresultStatus(res) != PGRES_TUPLES_OK) {
-        std::cerr << "SELECT failed: " << PQerrorMessage(conn) << std::endl;
-        PQclear(res);
-    }
-
-    // 获取查询结果
-    int nrows = PQntuples(res);
-    int ncols = PQnfields(res);
-    if(ncols > 0){
-        for (int i = 0; i < nrows; i++) {
-            section_code.push_back(PQgetvalue(res, i, 0));
-        }
-    }
-
-    // 清理
-    PQclear(res);
-}
-
-void insert_data(PGconn* conn, const std::string & road_section_code, const std::string& road_info, const std::string& gmt_create, const std::string& bd_geom, const std::string& st_geom) {
-    // std::cout << "Connected to database successfully!" << std::endl;
-
-    // iov_track_road_info
-    // 构造 SQL 插入语句
-    std::string query = "INSERT INTO track_to_road_test (road_section_code, road_info, gmt_create, bd_geom, standard_geom) VALUES "
-                        "($1::varchar(200), $2::json, TO_TIMESTAMP($3, 'YYYYMMDD'), ST_GeomFromText($4, 4326), ST_GeomFromText($5, 4326)) "
-                        "ON CONFLICT (road_section_code) "
-                        "DO UPDATE SET "
-                        "road_info = EXCLUDED.road_info, "
-                        "gmt_create = EXCLUDED.gmt_create, "
-                        "bd_geom = EXCLUDED.bd_geom, "
-                        "standard_geom = EXCLUDED.standard_geom;";
-
-    // 设置参数
-    const char* paramValues[5] = {road_section_code.c_str(), road_info.c_str(), gmt_create.c_str(), bd_geom.c_str(), st_geom.c_str()};
-
-    // 执行插入
-    PGresult* res = PQexecParams(
-        conn,
-        query.c_str(),   // SQL 查询
-        5,               // 参数个数
-        nullptr,         // 参数类型（可以为空，PostgreSQL 会自动推断）
-        paramValues,     // 参数值
-        nullptr,         // 参数值长度（可以为空，PostgreSQL 会自动计算）
-        nullptr,         // 参数格式（文本格式）
-        0                // 返回结果格式（0 表示文本格式）
-    );
-
-    // 检查结果
-    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-        std::cerr << "Insert failed: " << PQerrorMessage(conn) << std::endl;
-    } else {
-        // std::cout << "Data inserted successfully!" << std::endl;
-    }
-
-    // 清理资源
-    PQclear(res);
-}
-
 // 数据库连接信息
 #ifdef IS_CENTOS
 const char * conninfo = "host=10.7.176.83 port=5432 dbname=zto_map user=postgres password=zto@666_xt.%888";
 const char * requesturl = "http://zmap-openapi.ztosys.com";
 #else
 const char * conninfo = "host=10.7.68.124 port=5432 dbname=zto_map user=postgres password=zto";
-const char * requesturl = "https://zmap-openapi.gw.zt-express.com";
+// const char * conninfo = "host=10.7.68.124 port=5432 dbname=zto_map user=postgres password=zto";
+const char * requesturl = "https://zmap-openapi.gw-test.ztosys.com";
 #endif
 
 MatchService match_service;
@@ -220,7 +48,7 @@ bool processRouteSection(const std::string &section_code, PGconn* conn, const ch
     memset(buffer, 0, sizeof(buffer));
     snprintf(buffer, sizeof(buffer), "%s/iov/getTrack?sectionCode=%s&ds=%s", requesturl, section_code.c_str(), ds);
 
-    std::cout << "request track:" << section_code.c_str() << std::endl;
+    //std::cout << "request track:" << section_code.c_str() << std::endl;
     std::string track;
 
     if(!request_get_track(buffer, track)){
@@ -244,7 +72,7 @@ bool processRouteSection(const std::string &section_code, PGconn* conn, const ch
         if (root.count("points") <= 0) {
             std::cout << "Key 'points' does not exist" << std::endl;
             MatchPathResult result;
-            insert_data(conn, section_code, result.toSectionInfoJson(), ds, result.toWkt(), "LINESTRING(0.0 0.0,0.0 0.0)");
+            insert_data(conn, section_code, result.toSectionInfoJson(), ds, result.toWkt(), "LINESTRING(0.0 0.0,0.0 0.0)", "LINESTRING(0.0 0.0,0.0 0.0)");
         }
         else{
             // 提取数据
@@ -266,16 +94,26 @@ bool processRouteSection(const std::string &section_code, PGconn* conn, const ch
                     std::vector<std::string> lon_lat;
                     splitstring(str_point, ',', lon_lat);
                     if(lon_lat.size() == 2){
-                        double bd09_lon, bd09_lat;
-                        gcj02_to_bd09(atof(lon_lat.at(0).c_str()), atof(lon_lat.at(1).c_str()), bd09_lon, bd09_lat);
-                        coordlist.emplace_back(bd09_lon * 1000000.0, bd09_lat * 1000000.0);
+                        coordlist.emplace_back(atof(lon_lat.at(0).c_str()) * 1000000.0, atof(lon_lat.at(1).c_str()) * 1000000.0);
+                        // double bd09_lon, bd09_lat;
+                        // gcj02_to_bd09(atof(lon_lat.at(0).c_str()), atof(lon_lat.at(1).c_str()), bd09_lon, bd09_lat);
+                        // coordlist.emplace_back(bd09_lon * 1000000.0, bd09_lat * 1000000.0);
                     }
                 }
             }
 
             MatchPathResult result;
             match_service.RunQuery(coordlist, result);
-            insert_data(conn, section_code, std::move(result.toSectionInfoJson()), ds, std::move(result.toWkt()), std::move(pointsToWkt(coordlist)));
+
+            std::vector<Point2D> bd09_coordlist;
+            bd09_coordlist.reserve(coordlist.size());
+            for(const auto & pt : coordlist){
+                double bd09_lon, bd09_lat;
+                gcj02_to_bd09(pt.toFloatLon(), pt.toFloatLat(), bd09_lon, bd09_lat);
+                bd09_coordlist.emplace_back(bd09_lon * 1000000.0, bd09_lat * 1000000.0);
+            }
+            // match_service.RunQuerySlope(bd09_coordlist, result);
+            insert_data(conn, section_code, std::move(result.toSectionInfoJson()), ds, std::move(result.toWkt()), std::move(pointsToWkt(coordlist)), std::move(pointsToWkt(bd09_coordlist)));
         }
     } catch (const boost::property_tree::json_parser_error& e) {
         std::cerr << "Error parsing JSON: " << e.what() << std::endl;
@@ -298,6 +136,7 @@ void processPoints(const char * ds){
 
         int32_t current_index = 0;
         while((current_index = spinlock()) < section_codes.size()){
+            std::cout << "request" << current_index <<" track:" << section_codes.at(current_index).c_str() << std::endl;
             processRouteSection(section_codes.at(current_index), conn, ds);
         }
 
@@ -313,8 +152,94 @@ void processPoints(const char * ds){
     PQfinish(conn);
 }
 
+typedef std::pair<RPoint, std::shared_ptr<AccidentInfo>> AcciddentInfoRPointValue;
+void processd_high_incidence_of_accidents(){
+
+    std::vector<std::shared_ptr<AccidentInfo> > ai_list;
+    CacheGrid<bgi::rtree<AcciddentInfoRPointValue, bgi::quadratic<16>> > cache_rtree;
+
+    const char * tn = "gaode_guide_info";
+    load_high_incidence_of_accidents(tn, ai_list);
+
+    for(const auto & ai : ai_list){
+        const auto & cache_result = cache_rtree.sreach_by_point(ai->pt);
+
+        if(cache_result.size()){
+            RPoint query_point(ai->pt.x, ai->pt.y);
+            cache_result.front()->insert(std::make_pair(query_point, ai));
+        }
+    }
+
+    char fn[64];
+    snprintf(fn, sizeof(fn), "%s.txt", tn);
+
+    OutGeomJson ogj("gaode_guide_info.json");
+    std::ofstream file(fn);
+    if (file.is_open()) {
+        for(int32_t i = 0; i< ai_list.size(); ++i){
+            const auto & ai = ai_list.at(i);
+            const int32_t offset = (ai->offset * 10);
+            Point2D lb(ai->pt.x - offset, ai->pt.y - offset);
+            Point2D rt(ai->pt.x + offset, ai->pt.y + offset);
+            const auto cache_result = cache_rtree.sreach_by_range(lb, rt);
+
+            RBox query_box(RPoint(lb.x, lb.y), RPoint(rt.x, rt.y));
+            std::vector<AcciddentInfoRPointValue > rels;
+            for(auto rtree : cache_result){
+                rtree->query(bgi::within(query_box), std::back_inserter(rels));
+            }
+
+            bool is_filter = false;
+            for(const auto & rel : rels){
+                const auto & rel_ai = rel.second;
+                if(ai == rel_ai){
+                    continue;
+                }
+
+                const double b = CalculateAngle(ai->pt, rel_ai->pt);
+                double a = calculateIncludeAngle(b, ai->bearing);
+                if(a < 20){
+                    a = calculateIncludeAngle(ai->bearing, rel_ai->bearing);
+                    if(a < 20){
+                        is_filter = true;
+                        break;
+                    }
+                }
+            }
+
+            if(false == is_filter){
+                file << ai->to_str() << std::endl;
+                ogj.add_point(ai->pt, {{"bearing", std::to_string(ai->bearing)}, {"offset", std::to_string(ai->offset)}});
+            }
+        }
+
+        file.close();
+    }
+    else{
+        std::cerr << "opening file  failed:" << fn << std::endl;
+    }
+}
+
 int route_match_processing(int argc, const char *argv[])
 {
+    if(0){
+        processd_high_incidence_of_accidents();
+        return 1;
+    }
+    if(0){
+        processdw_gis_fence_position_version_index_all();
+        return 1;
+    }
+    if(0){
+        double a1 = CalculateAngle(Point2D(127294653, 42377856), Point2D(127294624, 42377745));
+        double a2 = CalculateAngle(Point2D(127294624, 42377745), Point2D(127294124, 42377216));
+
+        double a = abs(a1 - a2);
+        if(a > 180){
+            a = 360 - a;
+        }
+        return 0;
+    }
     if(0){
         NodeQueue nq;
         nq.push(std::make_shared<Node>(1, 1));
@@ -350,12 +275,134 @@ int route_match_processing(int argc, const char *argv[])
         PQfinish(conn);
         std::cout <<"Number of executed items:" << pre_section_codes.size() << std::endl;
     }
+    if(1){
+        // 打开文件
+        std::ifstream file("shigu.txt");
+        if (!file.is_open()) {
+            std::cerr << "无法打开文件!" << std::endl;
+            return false;
+        }
+
+        OutGeomJson outgeojson("shigu.json");
+
+        std::string line;
+        while (std::getline(file, line)) {
+            if (!line.empty() && line.back() == '\r') {
+                line.pop_back();
+            }
+
+            std::cout << line.c_str() << std::endl;
+
+            AccidentInfo ai;
+            ai.set_str(line);
+            match_service.setAccidentInfo(ai, &outgeojson);
+        }
+        file.close();
+        // return 1;
+    }
+    if(1)
+    {
+        {
+            // 打开文件
+            std::ifstream file("shigong.txt");
+            if (!file.is_open()) {
+                std::cerr << "无法打开文件!" << std::endl;
+                return false;
+            }
+
+            std::string line;
+            int32_t row = 0;
+            while (std::getline(file, line)) {
+                if (!line.empty() && line.back() == '\r') {
+                    line.pop_back();
+                }
+
+                std::vector<std::string> wkt_strs;
+                get_wkt_str(line, wkt_strs);
+
+                std::vector<Point2D> coordlist;
+                for(const auto & wkt_str : wkt_strs){
+                    std::vector<std::string> pointlist;
+                    splitstring(wkt_str, ',', pointlist);
+                    coordlist.reserve(pointlist.size());
+
+                    // int32_t s_index = 3070;
+                    for(const auto &point_str : pointlist){
+                        std::vector<std::string> lon_lat;
+                        splitstring(point_str, ' ', lon_lat);
+                        if(lon_lat.size() == 2){
+                            coordlist.emplace_back(atof(lon_lat.at(0).c_str()) * 1000000.0, atof(lon_lat.at(1).c_str()) * 1000000.0);
+                        }
+                    }
+                    std::cout<< row << ";" << wkt_str.c_str() << std::endl;
+                }
+                uint32_t size = match_service.RunQueryConstruction(coordlist, 180);
+                if(0 == size){
+                    std::reverse(coordlist.begin(), coordlist.end());
+                    match_service.RunQueryConstruction(coordlist, 180);
+                }
+                ++row;
+            }
+            file.close();
+        }
+
+        {
+            // 打开文件
+            std::ifstream file("shigong_sg.txt");
+            if (!file.is_open()) {
+                std::cerr << "无法打开文件!" << std::endl;
+                return false;
+            }
+
+            std::string line;
+            int32_t row = 0;
+            while (std::getline(file, line)) {
+                if (!line.empty() && line.back() == '\r') {
+                    line.pop_back();
+                }
+
+                std::vector<std::string> wkt_strs;
+                get_wkt_str(line, wkt_strs);
+
+                for(const auto & wkt_str : wkt_strs){
+                    std::vector<Point2D> coordlist;
+                    std::vector<std::string> pointlist;
+                    splitstring(wkt_str, ',', pointlist);
+                    coordlist.reserve(pointlist.size());
+
+                    // int32_t s_index = 3070;
+                    for(const auto &point_str : pointlist){
+                        std::vector<std::string> lon_lat;
+                        splitstring(point_str, ' ', lon_lat);
+                        if(lon_lat.size() == 2){
+                            coordlist.emplace_back(atof(lon_lat.at(0).c_str()) * 1000000.0, atof(lon_lat.at(1).c_str()) * 1000000.0);
+                        }
+                    }
+                    std::cout<< row << ";" << wkt_str.c_str() << std::endl;
+                    match_service.RunQueryConstruction(coordlist, 20);
+                }
+                ++row;
+            }
+            file.close();
+        }
+
+        // return 1;
+    }
 
     if(1){
         // section_codes = {"55700-57100"};
         // section_codes = {"02828-79100"};
         // section_codes = {"57600-57100"};
-        section_codes = {"00007-21999"};
+        // section_codes = {"00007-21999"};
+        // section_codes = {"02199-55100"};
+        // section_codes = {"02199-02500", "02700-43100", "57700-55200"};
+        // section_codes = {"02700-43100"};
+        section_codes = {"02199-02500",
+                         "57700-55200",
+                         "871220-87100",
+                         "02301-02828",
+                         "87100-02301",
+                         "02700-43100"};
         processPoints(argv[2]);
         return 1;
     }
@@ -365,8 +412,8 @@ int route_match_processing(int argc, const char *argv[])
     request_get_line(buffer, section_codes);
     std::cout <<"Total number:" << section_codes.size() << std::endl;
 
-
-    int32_t thread_num = std::thread::hardware_concurrency() / 2 + 1;
+    // int32_t thread_num = std::thread::hardware_concurrency() / 2 + 1;
+    int32_t thread_num = 3;
     std::cout <<"thread number:" << thread_num << std::endl;
 
     std::vector<std::thread> thread_group;
@@ -396,4 +443,3 @@ int route_match_processing(int argc, const char *argv[])
    std::cout << "end!" << std::endl;
    return 1;
 }
-

@@ -78,33 +78,24 @@ struct SegmentNeartCost{
 struct SectionInfo{
     int32_t start_index;
     int32_t end_index;
+    double turn_angle;
     double len;
-    SectionInfo():start_index(-1), end_index(-1), len(0.0){}
-    SectionInfo(int32_t start_index, int32_t end_index, double len):start_index(start_index), end_index(end_index), len(len){}
+    SectionInfo():start_index(-1), end_index(-1), turn_angle(0.0), len(0.0){}
+    SectionInfo(int32_t start_index, int32_t end_index, double len):start_index(start_index), end_index(end_index), turn_angle(0.0), len(len){}
 };
 
-inline std::string pointsToWkt(const std::vector<Point2D> & poistions){
-    if(poistions.empty()){
-        return "LINESTRING(0.0 0.0,0.0 0.0)";
-    }
-
-    std::string linestring = "";
-    bool is_start = true;
-    for(const auto & pt : poistions){
-
-        char buffer[64];
-        snprintf(buffer, sizeof(buffer), "%.6f %.6f", pt.toFloatLon(), pt.toFloatLat());
-
-        if(is_start){
-            is_start = false;
-        } else {
-            linestring+=", ";
-        }
-        linestring += buffer;
-    }
-
-    linestring = "LINESTRING("+ linestring+")";
-    return linestring;
+#define TRUN_SECTION_INFO_TO_STR(si_list, key, str) { \
+        str = "\""#key"\":["; \
+        bool is_start = true; \
+        for(const auto & item : si_list){ \
+            if(is_start){ \
+                is_start = false; \
+            }else{ \
+                str+=","; \
+            } \
+            str+="{\"s\":" + std::to_string(item.start_index) + ", \"e\":" + std::to_string(item.end_index) +", \"l\":" + std::to_string(item.len) +", \"turn_angle\":" + std::to_string(item.turn_angle) +"}"; \
+        } \
+        str+="]"; \
 }
 
 #define SECTION_INFO_TO_STR(si_list, key, str) { \
@@ -128,6 +119,11 @@ struct MatchPathResult{
     std::vector<SectionInfo> ramp_list;
     std::vector<SectionInfo> slop_list;
     std::vector<SectionInfo> dangers_list;
+    std::vector<SectionInfo> turn_list;
+    std::vector<SectionInfo> construction_list;
+
+    bool is_slope;
+    MatchPathResult() : is_slope(false){}
 
     std::string toWkt(){
         return pointsToWkt(poistions);
@@ -143,7 +139,13 @@ struct MatchPathResult{
         std::string s_list_str;
         SECTION_INFO_TO_STR(slop_list, s_list, s_list_str);
 
-        return "{" + d_list_str +", " + r_list_str +", " + s_list_str + "}";
+        std::string t_list_str;
+        TRUN_SECTION_INFO_TO_STR(turn_list, t_list, t_list_str);
+
+        std::string c_list_str;
+        SECTION_INFO_TO_STR(construction_list, c_list, c_list_str);
+
+        return "{" + d_list_str +", " + r_list_str +", " + s_list_str +", " + t_list_str +", " + c_list_str + "}";
     }
 };
 
@@ -153,8 +155,10 @@ public:
                            const std::vector<TrackInfo > & tracklist
                        /* const std::vector<Point2D> & coordlist,
                        const std::vector<std::vector<NearestInfo>> & route_nearest_info */);
-    void findPath(MatchPathResult & path);
+    void constructMatchPathResult(MatchPathResult & path);
+    uint32_t addConstructionInformation();
 private:
+    void findPath();
     void initialization();
     void initForward();
     void initRevered();
@@ -166,9 +170,11 @@ private:
     bool expandNode(bool is_start);
 
     void gendsegmentPoints(const uint32_t dsegment_id, const int32_t start_index, const int32_t end_index, std::vector<Point2D> & poistions);
+    void constructPath(std::vector<uint32_t> &dsegment_ids);
     void constructPath(MatchPathResult &path);
     void constructPoints(const std::vector<uint32_t> & dsegment_ids, std::vector<Point2D> & poistions);
     void constructSectionInfo(MatchPathResult &path);
+    void constructSectionInfoSlope(MatchPathResult &path);
 private:
     std::shared_ptr<DataManger> datamanager;
     std::vector<TrackInfo > track_list;

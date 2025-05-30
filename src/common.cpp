@@ -1,5 +1,6 @@
 #include "common.h"
 #include <math.h>
+#include <cstring>
 
 void splitstring(const std::string& str, const char separate, std::vector<std::string>& result) {
     size_t startPos = 0;
@@ -50,10 +51,10 @@ double pointToSegmentDistance(const Point2D& p, const Point2D& a, const Point2D&
     }
 }
 
-// 计算两个点之间的方向角
-double CalculateAngle(const Point2D & p1, const Point2D & p2) {
-    const double dy = p2.y - p1.y;
-    const double dx = p2.x - p1.x;
+// 计算两个点之间的方向角(正北为零顺时针)
+double CalculateAngle(const double p1_x, const double p1_y, const double p2_x, const double p2_y) {
+    const double dy = p2_y - p1_y;
+    const double dx = p2_x - p1_x;
 
     if(std::fabs(dy) < EPSILON){
         return dx < 0.0 ? 270.0 : 90.0;
@@ -70,6 +71,16 @@ double CalculateAngle(const Point2D & p1, const Point2D & p2) {
 
     // 返回方向角（以度为单位）
     return (dy > 0.0 ? (dx > 0.0 ? (90.0 - angle_radians) : (270.0 + angle_radians)) : (dx > 0.0 ? (90.0 + angle_radians) : (270.0 - angle_radians)));
+}
+
+// 计算两个点之间的方向角
+double CalculateAngle(const Point2D & p1, const Point2D & p2) {
+    return CalculateAngle(p1.toFloatLon(), p1.toFloatLat(), p2.toFloatLon(), p2.toFloatLat());
+}
+
+double calculateIncludeAngle(const double a, const double b) {
+    const double anlge = abs(a - b);
+    return anlge > 180.0 ? (360.0 - anlge) : anlge;
 }
 
 // 计算点到线段的投影点
@@ -94,6 +105,15 @@ Point2D projection_point(const Point2D A, const Point2D B, const Point2D P) {
 
     // 计算投影点 Q
     return Point2D(A.x + t * AB.x, A.y + t * AB.y);
+}
+
+void str_replace(std::string & str, const std::string to_replace, const std::string replacement){
+    size_t pos = str.find(to_replace);
+    while (pos != std::string::npos){
+        // 替换子字符串
+        str.replace(pos, to_replace.length(), replacement);
+        pos = str.find(to_replace);
+    }
 }
 
 // 将角度转换为弧度
@@ -148,4 +168,95 @@ void gcj02_to_bd09(double gcj_lon, double gcj_lat, double &bd_lon, double &bd_la
     const double theta = atan2(gcj_lat, gcj_lon) + 0.000003 * cos(gcj_lon * X_PI);
     bd_lat = (z * sin(theta) + 0.006);
     bd_lon = (z * cos(theta) + 0.0065);
+}
+
+void get_wkt_str(const std::string & wkt, std::vector<std::string > & wkt_strs){
+
+    int32_t size = wkt.size();
+    char * ch = new char[size];
+    memset(ch, 0, size);
+
+    int32_t ch_i = 0;
+    for(int32_t i = 0; i < size; ++i){
+        const char & c = wkt.at(i);
+        if(c=='('){
+            if(ch_i){
+                memset(ch, 0, ch_i);
+            }
+            ch_i = 0;
+        }
+        else if(c== ')'){
+            if(ch_i > 5){
+                wkt_strs.emplace_back(ch);
+                memset(ch, 0, ch_i);
+            }
+            ch_i = 0;
+        }else if((c >= '0' && c<='9') || c == '.' || c == ',' ||
+                (c == ' ' && i && (i < (wkt.size() - 1)) &&  wkt.at(i - 1) >= '0' &&  wkt.at(i - 1) <= '9'&&  wkt.at(i + 1) >= '0' &&  wkt.at(i + 1) <= '9')){
+            if(c == ')'){
+                ch_i = ch_i;
+            }
+            ch[ch_i++] = c;
+        }
+    }
+    if(ch_i > 5){
+        wkt_strs.emplace_back(ch);
+        memset(ch, 0, ch_i);
+        ch_i = 0;
+    }
+    delete[] ch;
+}
+
+void wkt_str_to_geometry(const std::string & wkt_str, std::vector<Point2D> & line){
+    std::vector<std::string> pointlist;
+    splitstring(wkt_str, ',', pointlist);
+    line.reserve(pointlist.size());
+
+    for(const auto &str_point : pointlist){
+        std::vector<std::string> lon_lat;
+        splitstring(str_point, ' ', lon_lat);
+        if(lon_lat.size() == 2){
+            if(lon_lat.at(0).find('.', 0) == std::string::npos &&
+               lon_lat.at(1).find('.', 0) == std::string::npos){
+                uint32_t x = atoi(lon_lat.at(0).c_str());
+                uint32_t y = atoi(lon_lat.at(1).c_str());
+                line.emplace_back(x, y);
+            }else{
+                double lon = atof(lon_lat.at(0).c_str());
+                double lat = atof(lon_lat.at(1).c_str());
+                line.emplace_back(lon * 1000000.0, lat * 1000000.0);
+            }
+        }
+    }
+}
+
+std::string toWkt(const std::vector<Point2D> & poistions){
+    std::string linestring = "";
+    bool is_start = true;
+    for(const auto & pt : poistions){
+        char buffer[64];
+        snprintf(buffer, sizeof(buffer), "%.6f %.6f", pt.toFloatLon(), pt.toFloatLat());
+
+        if(is_start){
+            is_start = false;
+        } else {
+            linestring+=", ";
+        }
+        linestring += buffer;
+    }
+    return linestring;
+}
+
+std::string pointsToPolygonWkt(const std::vector<Point2D> & poistions){
+    if(poistions.empty()){
+        return "POLYGON((0.0 0.0,0.0 0.0,0.0 0.0,0.0 0.0))";
+    }
+    return "POLYGON(("+ toWkt(poistions)+"))";
+}
+
+std::string pointsToWkt(const std::vector<Point2D> & poistions){
+    if(poistions.empty()){
+        return "LINESTRING(0.0 0.0,0.0 0.0)";
+    }
+    return "LINESTRING("+ toWkt(poistions) +")";
 }

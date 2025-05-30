@@ -7,9 +7,20 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/tinyxml2/include
 )
 
-if(DIS_CENTOS)
+execute_process(
+    COMMAND grep -q "CentOS Linux release 7" /etc/centos-release
+    RESULT_VARIABLE IS_CENTOS
+)
+
+if(IS_CENTOS EQUAL 0)
     add_definitions(-DIS_CENTOS)
 endif()
+
+#if(IS_CENTOS EQUAL 0)
+#    add_compile_definitions(IS_CENTOS=1)
+#else()
+#    add_compile_definitions(IS_CENTOS=0)
+#endif()
 
 #set(CMAKE_CXX_STANDARD 17)
 #set(CMAKE_CXX_STANDARD_REQUIRED ON)  # 强制要求 C++17 标准
